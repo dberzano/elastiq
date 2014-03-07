@@ -1,1 +1,0 @@
-../../cernvm-context/u1.11/user-data-slave.txt

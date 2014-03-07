@@ -1,16 +1,16 @@
-#!/usr/bin/env python
-
 #
-# elastiq.py -- by Dario Berzano <dario.berzano@cern.ch>
+# __init__.py -- by Dario Berzano <dario.berzano@cern.ch>
 #
-# Monitors the HTCondor queue for new jobs and idle nodes, and take proper
-# actions.
+# Main file of elastiq. Elastiq monitors the batch system's queue and status
+# for new jobs and idle nodes, and takes proper actions by launching and
+# shutting down VMs via its EC2 interface.
 #
 
 import time
 import logging, logging.handlers
 import signal
 import sys
+import getopt
 import subprocess
 import os
 import boto
@@ -18,16 +18,7 @@ import socket
 import random
 import base64
 import re
-
 from ConfigParser import SafeConfigParser
-
-import xml.etree.ElementTree as ET
-try:
-  # Python 2.6
-  from xml.etree.ElementTree import ParseError as XmlParseError
-except ImportError:
-  # Python 2.7+
-  from xml.parsers.expat import ExpatError as XmlParseError
 
 
 cf = {}
@@ -47,8 +38,11 @@ cf['elastiq'] = {
   # Conditions to stop idle VMs
   'idle_for_time_s': 3600,
 
-  # Condor central server (defaults to current one)
-  'condor_host': None
+  # Batch plugin
+  'batch_plugin': 'htcondor',
+
+  # Log level (lower is more verbose)
+  'log_level': 0
 
 }
 cf['ec2'] = {
@@ -87,6 +81,9 @@ user_data = None
 do_main_loop = True
 htcondor_ip_name_re = re.compile('^(([0-9]{1,3}-){3}[0-9]{1,3})\.')
 
+# Alias to the batch plugin module
+BatchPlugin = None
+
 
 def type2str(any):
   return type(any).__name__
@@ -105,36 +102,22 @@ def gethostbycondorname(name):
     return socket.gethostbyname(name)
 
 
-def conf():
+def conf(config_file):
+  """Parses the configuration file given as input. Returns True if it was read
+  correctly, False otherwise."""
 
   global cf
-
-  # Set the default for some variables
-  cmdo = robust_cmd(['condor_config_val', 'CONDOR_HOST'], max_attempts=1)
-  if cmdo and 'output' in cmdo:
-    # Try to find IP address from host name
-    try:
-      cf['elastiq']['condor_host'] = socket.gethostbyname(cmdo['output'].rstrip())
-    except Exception:
-      # TODO: current IP
-      cf['elastiq']['condor_host'] = None
 
   cf_parser = SafeConfigParser()
 
   # etc dir at the same level of the bin dir containing this script
   close_etc_path = os.path.realpath( os.path.realpath(os.path.dirname(__file__)) + "/../etc" )
 
-  # The last file has precedence over the first file
-  config_files = [
-    "/etc/elastiq.conf",
-    "%s/elastiq.conf" % close_etc_path,
-    os.path.expanduser("~/.elastiq.conf")
-  ]
-  cf_parser.read(config_files)
-
-  # Print config files
-  for f in config_files:
-    logging.info("Configuration file: %s" % f)
+  # Try to open configuration file (read() can get a list of files as well)
+  conf_file_ok = True
+  if len(cf_parser.read(config_file)) == 0:
+    logging.warning("Cannot read configuration file %s" % config_file)
+    conf_file_ok = False
 
   for sec_name,sec_content in cf.iteritems():
 
@@ -151,45 +134,49 @@ def conf():
       except Exception, e:
         logging.info("Configuration: %s.%s = %s (default)", sec_name, key, str(val))
 
+  return conf_file_ok
 
-def log():
+def log(log_directory):
   """Configures logging. Outputs log to the console and, optionally, to a file.
   File name is automatically selected. Returns the file name, or None if it
   cannot write to a file."""
 
-  format="%(asctime)s %(name)s %(levelname)s [%(funcName)s] %(message)s"
-  datefmt="%Y-%m-%d %H:%M:%S"
-  level=logging.DEBUG
+  format = "%(asctime)s %(name)s %(levelname)s [%(module)s.%(funcName)s] %(message)s"
+  datefmt = "%Y-%m-%d %H:%M:%S"
+  level = 0
 
   # Log to console
   logging.basicConfig(level=level, format=format, datefmt=datefmt, stream=sys.stdout)
 
-  # Log directory and file
-  dir = os.path.realpath( os.path.realpath(os.path.dirname(__file__)) + "/../var/log" )
-  filename = "%s/elastiq.log" % dir
-
-  # Try to create log directory and file
-  try:
-    if not os.path.isdir(dir):
-      os.makedirs(dir, 0755)
-    log_file = logging.handlers.RotatingFileHandler(filename, mode="a", maxBytes=1000000, backupCount=30)
-    log_file.setLevel(level)
-    log_file.setFormatter( logging.Formatter(format, datefmt) )
-    logging.getLogger("").addHandler(log_file)
-    log_file.doRollover()  # rotate immediately
-  except Exception, e:
-    logging.warning("Cannot log to file %s: %s: %s" % (filename, type(e).__name__, e))
-    return None
-
   # Silence boto errors
   logging.getLogger("boto").setLevel(logging.CRITICAL)
+
+  # Log file
+  if log_directory is not None:
+    filename = "%s/elastiq.log" % log_directory
+
+    # Try to create log directory and file
+    try:
+      if not os.path.isdir(log_directory):
+        os.makedirs(log_directory, 0755)
+      log_file = logging.handlers.RotatingFileHandler(filename, mode="a", maxBytes=1000000, backupCount=30)
+      log_file.setLevel(level)
+      log_file.setFormatter( logging.Formatter(format, datefmt) )
+      logging.getLogger("").addHandler(log_file)
+      log_file.doRollover()  # rotate immediately
+    except Exception, e:
+      logging.warning("Cannot log to file %s: %s: %s" % (filename, type(e).__name__, e))
+      return None
+  else:
+    # No log directory
+    return None
 
   return filename
 
 
 def exit_main_loop(signal, frame):
   global do_main_loop
-  logging.debug("Termination requested")
+  logging.info("Termination requested: we will exit gracefully soon")
   do_main_loop = False
 
 
@@ -357,9 +344,9 @@ def ec2_scale_down(hosts, valid_hostnames=None):
   """Asks the Cloud to shutdown hosts corresponding to the given hostnames
   by using the EC2 interface. Returns the number of hosts successfully shut
   down. Note: minimum number of VMs is honored by considering, as number of
-  currently running VMs, the sole VMs known by HTCondor. This behavior is
-  different than what we do for the maximum quota, where we take into account
-  all the running VMs to avoid cloud overflowing."""
+  currently running VMs, the sole VMs known by the batch system. This behavior
+  is different than what we do for the maximum quota, where we take into
+  account all the running VMs to avoid cloud overflowing."""
 
   if len(hosts) == 0:
     logging.warning("No hosts to shut down!")
@@ -394,14 +381,14 @@ def ec2_scale_down(hosts, valid_hostnames=None):
       logging.warning("Cannot find instance for IP to shut down %s: skipped" % ip)
 
   # Print number of all valid instances
-  logging.debug("HTCondor hosts: reqd to shutdown=%d | to shutdown matching EC2=%d | total matching EC2=%d" % \
+  logging.debug("Batch hosts: reqd to shutdown=%d | to shutdown matching EC2=%d | total matching EC2=%d" % \
     (len(hosts), len(inst_shutdown), len(inst)))
 
   # Shuffle the list
   random.shuffle(inst_shutdown)
 
-  # Number of VMs to shutdown to honor the minimum quota of EC2 VMs matching HTCondor hosts
-  max_vms_to_shutdown = len(inst)-cf['quota']['min_vms']  # inst --> known *both* by HTCondor and EC2
+  # Number of VMs to shutdown to honor the minimum quota of EC2 VMs matching batch hosts
+  max_vms_to_shutdown = len(inst)-cf['quota']['min_vms']  # inst --> known *both* by the batch system and EC2
 
   n_succ = 0
   n_fail = 0
@@ -447,126 +434,6 @@ def ec2_scale_down(hosts, valid_hostnames=None):
   return n_succ
 
 
-def poll_condor_queue(): 
-  """Polls HTCondor for the number of inserted (i.e., "waiting") jobs.
-  Returns the number of inserted jobs on success, or None on failure.
-  """
-
-  ret = robust_cmd(['condor_q', '-attributes', 'JobStatus', '-long'], max_attempts=5)
-  if ret and 'output' in ret:
-    return ret['output'].count("JobStatus = 1")
-
-  return None
-
-
-def poll_condor_status(current_workers_status, valid_ipv4s=None):
-  """Polls HTCondor for the list of workers with the number of running jobs
-  per worker. Returns an array of hosts, each one of them has a parameter that
-  indicates the number of running jobs."""
-
-  ret = robust_cmd(['condor_status', '-xml', '-attributes', 'Activity,Machine'], max_attempts=2)
-  if ret is None or 'output' not in ret:
-    return None
-
-  workers_status = {}
-
-  try:
-
-    xdoc = ET.fromstring(ret['output'])
-    #xdoc = ET.fromstring("this is clearly invaild XML")
-    for xc in xdoc.findall("./c"):
-
-      # List of the parameters to search for. XML structure is, for each job
-      # slot:
-      # <c>
-      #   <a n="MyType">Machine</a>
-      #   <a n="Machine">host.name</a>
-      #   <a n="Activity">Idle</a>
-      # </c>
-      params = {
-        'MyType': None,
-        'Machine': None,
-        'Activity': None
-      }
-
-      for xa in xc.findall("./a"):
-        n = xa.get("n")
-        if n is None:
-          continue
-        for k in params:
-          if n == k:
-            xs = xa.find("./s")
-            if xs is not None:
-              params[n] = xs.text
-
-      # Do we have all the needed parameters?
-      valid = True
-      for k,v in params.iteritems():
-        if v is None:
-          valid = False
-          break
-      if valid == False:
-        continue
-
-      # If it is not a machine, skip it
-      if params['MyType'] != 'Machine':
-        continue
-
-      # Simpler variables
-      host = params['Machine']
-      activity = params['Activity']
-      logging.debug("Found: %s is %s" % (host,activity))
-
-      # If we have a list of valid IPv4 addresses, check if it matches.
-      if valid_ipv4s is not None:
-        try:
-          ip = gethostbycondorname(host)
-          if ip not in valid_ipv4s:
-            logging.debug("Poll status: %s ignored (no matching VM)" % host)
-            continue
-        except Exception:
-          logging.debug("Poll status: %s ignored (cannot resolve IP)" % host)
-          continue
-
-      # Here we have host and activity. Activity might be, for instance,
-      # 'Idle' or 'Busy'. We only check for 'Idle'
-
-      idle = (activity == 'Idle')
-
-      if host in workers_status:
-        # Update current entry ('jobs' key is there always)
-        if not idle:
-          workers_status[host]['jobs'] = workers_status[host]['jobs'] + 1
-      else:
-        # Entry not yet present
-        workers_status[host] = {}
-        if idle:
-          workers_status[host]['jobs'] = 0
-        else:
-          workers_status[host]['jobs'] = 1
-
-  except XmlParseError as e:
-    logging.error("Invalid XML: %s" % e)
-    return None
-
-  # At this point we have the previous state and the current state saved
-  # properly somewhere.
-  # Browse the new list for all workers with zero jobs, check if they already
-  # had zero jobs in the previous call, in case they're not, update the time
-
-  check_time = time.time()
-
-  for host,info in workers_status.iteritems():
-    if host in current_workers_status and \
-      current_workers_status[host]['jobs'] == info['jobs']:
-      workers_status[host]['unchangedsince'] = current_workers_status[host]['unchangedsince']
-    else:
-      workers_status[host]['unchangedsince'] = check_time
-
-  # Returns the new status
-  return workers_status
-
-
 def ec2_image(image_id):
   """Returns a boto Image object containing the image corresponding to a
   certain image AMI ID, or None if not found or problems occurred."""
@@ -588,12 +455,12 @@ def ec2_image(image_id):
 
 
 def check_vms(st):
-  """Checks status of Virtual Machines currently associated to HTCondor:
-  starts new nodes to satisfy minimum quota requirements, and turn off idle
-  nodes. Takes a list of worker statuses as input and returns an event
+  """Checks status of Virtual Machines currently associated to the batch
+  system: starts new nodes to satisfy minimum quota requirements, and turn off
+  idle nodes. Takes a list of worker statuses as input and returns an event
   dictionary scheduling self invocation."""
 
-  logging.info("Checking HTCondor VMs...")
+  logging.info("Checking batch system's VMs...")
   check_time = time.time()
 
   # Retrieve *all* running instances (also the non-owned ones) and filter out
@@ -605,7 +472,7 @@ def check_vms(st):
       rips.append( inst.private_ip_address )
   if len(rips) == 0:
     rips = None
-  new_workers_status = poll_condor_status( st['workers_status'], rips )
+  new_workers_status = BatchPlugin.poll_status( st['workers_status'], rips )
 
   if new_workers_status is not None:
     #logging.debug(new_workers_status)
@@ -657,12 +524,12 @@ def check_vms(st):
 
 
 def check_queue(st):
-  """Checks HTCondor queue and take actions of starting VMs when
-  appropriate. Returns an event dictionary scheduling self invocation."""
+  """Checks batch queue and take actions of starting VMs when appropriate.
+  Returns an event dictionary scheduling self invocation."""
 
-  logging.info("Checking HTCondor queue...")
+  logging.info("Checking queue...")
   check_time = time.time()
-  n_waiting_jobs = poll_condor_queue()
+  n_waiting_jobs = BatchPlugin.poll_queue()
 
   if n_waiting_jobs is not None:
 
@@ -720,12 +587,30 @@ def change_vms_allegedly_running(st, delta):
     })
 
 
-def main():
+def main(argv):
 
-  global ec2h, ec2img, user_data
+  global ec2h, ec2img, user_data, BatchPlugin
+
+  config_file = None
+  log_directory = None
+
+  # Parse options
+  try:
+    opts, args = getopt.getopt(argv, '', [ 'config=', 'logdir=' ])
+    for o, a in opts:
+      if o == '--config':
+        config_file = a
+      elif o == '--logdir':
+        log_directory = a
+    if config_file is None:
+      raise getopt.GetoptError('some mandatory options were not specified.')
+  except getopt.GetoptError as e:
+    print "elastiq: %s" % e
+    print 'Specify a configuration file with --config= and a log file directory with --logdir='
+    sys.exit(1)
 
   # Configure logging
-  lf = log()
+  lf = log(log_directory)
   if lf is None:
     logging.warning("Cannot log to file, only console will be used!")
   else:
@@ -735,7 +620,29 @@ def main():
   signal.signal(signal.SIGINT, exit_main_loop)
 
   # Read configuration
-  conf()
+  if conf(config_file) == False:
+    logging.error("Cannot contiue without configuration file")
+    sys.exit(2)
+
+  # Adjust log level
+  logging.getLogger("").setLevel( cf['elastiq']['log_level'] )
+
+  # Load batch plugin
+  batch_name = cf['elastiq']['batch_plugin']
+  try:
+    # See: http://stackoverflow.com/questions/6677424/how-do-i-import-variable-packages-in-python-like-using-variable-variables-i
+    # Similar to: from elastiq.plugins import htcondor as BatchPlugin
+    BatchPlugin = getattr(__import__("elastiq.plugins", fromlist=[ batch_name ]), batch_name)
+  except (ImportError, AttributeError) as e:
+    logging.fatal("Cannot find batch plugin \"%s\"" % batch_name)
+    sys.exit(2)
+
+  logging.info("Loaded batch plugin \"%s\"" % batch_name)
+
+  # Init batch plugin: pass it the configuration section (or None)
+  if batch_name not in cf:
+    cf[batch_name] = None
+  BatchPlugin.init( cf[batch_name] )
 
   # Initialize the EC2 handler
   ec2h = boto.connect_ec2_endpoint(
@@ -807,11 +714,3 @@ def main():
     time.sleep( cf['elastiq']['sleep_s'] )
 
   logging.info("Exiting gracefully!")
-
-
-#
-# Execute main() function when invoked as an executable
-#
-
-if __name__ == "__main__":
-  main()

@@ -1,0 +1,46 @@
+#
+# elastiq.conf.example -- by Dario Berzano <dario.berzano@cern.ch>
+#
+# Sample configuration file for the elastiq daemon. Remember that this file
+# does contain senstive information (EC2 credentials, and the user-data of
+# worker nodes), so protect it in a way that only elastiq can read it!
+#
+# For instance, if you save it in the default location:
+#
+#   /etc/elastiq.conf
+#
+# you can modify owner and permissions appropriately like this:
+#
+#   chown elastiq:elastiq /etc/elastiq.conf
+#   chmod u=rw,g=rw,o= /etc/elastiq.conf
+#
+
+[elastiq]
+sleep_s = 5
+check_queue_every_s = 15
+check_vms_every_s = 45
+waiting_jobs_threshold = 10
+waiting_jobs_time_s = 100
+n_jobs_per_vm = 4
+idle_for_time_s = 3600
+estimated_vm_deploy_time_s = 600
+batch_plugin = htcondor
+log_level = 0
+
+[debug]
+#dry_run_shutdown_vms = 1
+#dry_run_boot_vms = 1
+
+[quota]
+min_vms = 0
+max_vms = 3
+
+[ec2]
+api_url = https://dummy.ec2.server/ec2/
+aws_access_key_id = my_username
+aws_secret_access_key = my_password
+image_id = ami-00000000
+api_version = 2013-02-01
+key_name = 
+flavour = 
+user_data_b64 = 

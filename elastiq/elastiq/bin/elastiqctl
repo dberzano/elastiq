@@ -6,14 +6,13 @@
 #
 # chkconfig: - 99 09
 # description:  Control script for starting/stopping elastiq.py using \
-#               proper environment. Requires SLC6 (or RHEL6-compat) \
-#               with CVMFS: uses Python v2.7 from there.
+#               proper environment. Requires Python 2.6.
 #
 ### BEGIN INIT INFO
 # Provides: elastiq
 # Required-Start:
 # Default-Stop: 0 1 6
-# Short-Description: Starts the Name Switch Cache Daemon
+# Short-Description: Starts and stops the elastiq HTCondor queue monitor
 # Description:  Control script for starting/stopping elastiq.py.
 ### END INIT INFO
 
@@ -40,29 +39,35 @@ function FindFirst() {
   return 1
 }
 
-# Load environment
-elastiqDefault=$( FindFirst "$HOME/.elastiq.default" "/etc/default/elastiq" "/etc/sysconfig/elastiq" )
-if [ "$elastiqDefault" == '' ] ; then
-  echo 'Cannot find startup configuration file' >&2
-  exit 2
-fi
-source "$elastiqDefault"
-
 Lock='/var/lock/subsys/elastiq'
 
 # Default control variables
+if [ `whoami` == 'root' ] ; then
+  export elastiqDefaultSysconfig=$( FindFirst '/etc/default/elastiq' '/etc/sysconfig/elastiq' )
+  export elastiqDefaultLogFileDir='/var/log/elastiq'
+  export elastiqDefaultConfFile='/etc/elastiq.conf'
+else
+  export elastiqDefaultSysconfig="$HOME/.elastiq/startup.sh"
+  export elastiqDefaultLogFileDir="$HOME/.elastiq/log"
+  export elastiqDefaultConfFile="$HOME/.elastiq/elastiq.conf"
+fi
+
+# Load environment (ignore error if not found)
+[ "$elastiqDefaultSysconfig" != '' ] && source "$elastiqDefaultSysconfig" 2> /dev/null
+
 export elastiqScreenName='__|elastiq|__'
-export elastiqRealBin=$( FindFirst "$PWD/elastiq.py" '/usr/bin/elastiq.py' )
-export elastiqCommand="python $elastiqRealBin"
-export elastiqLogFileDir=${elastiqLogFileDir:-/var/log/elastiq}  # defaults to syswide path
+export elastiqRealBin=$( FindFirst "$(which elastiq-real.py 2> /dev/null)" "$PWD/elastiq-real.py" '/usr/bin/elastiq-real.py' )
+export elastiqLogFileDir=${elastiqLogFileDir:-$elastiqDefaultLogFileDir}  # defaults to syswide path
 export elastiqLogFile="${elastiqLogFileDir}/elastiq.log"
+export elastiqConfFile=${elastiqConfFile:-$elastiqDefaultConfFile}  # defaults to syswide file
 export elastiqUser=${elastiqUser:-elastiq}  # defaults to 'elastiq'
+export elastiqCommand="python $elastiqRealBin --logdir=\"$elastiqLogFileDir\" --config=\"$elastiqConfFile\""
 
 # Permissions for logfile dir
 mkdir -p "$elastiqLogFileDir" 2> /dev/null
 chown "$elastiqUser" "$elastiqLogFileDir" 2> /dev/null
-chmod 0700 "$elastiqLogFileDir" 2> /dev/null  # might contain sensitive data
-touch "$elastiqLogFileDir"/.test
+chmod 0770 "$elastiqLogFileDir" 2> /dev/null  # might contain sensitive data
+touch "$elastiqLogFileDir"/.test 2> /dev/null
 if [ $? != 0 ] ; then
   echo "Cannot access log directory $elastiqLogFileDir" >&2
   exit 3
@@ -167,6 +172,7 @@ function print_conf() {
   echo "Python  : $( which python ) ($( python -V 2>&1 ))"
   echo "Elastiq : $elastiqRealBin"
   echo "Log dir : $elastiqLogFileDir"
+  echo "Conf    : $elastiqConfFile"
 }
 
 # Entry point
