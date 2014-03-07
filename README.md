@@ -40,6 +40,18 @@ Requirements
 Installation
 ------------
 
+
+### The RPM way
+
+Pick a release and an RPM from the
+[releases](https://github.com/dberzano/elastiq/releases) page, and
+install it with:
+
+    yum localinstall elastiq-<ver>.rpm
+
+
+### The Python way
+
 To install system-wide, as root:
 
     python setup.py
