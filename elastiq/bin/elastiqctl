@@ -61,7 +61,7 @@ export elastiqLogFileDir=${elastiqLogFileDir:-$elastiqDefaultLogFileDir}  # defa
 export elastiqLogFile="${elastiqLogFileDir}/elastiq.log"
 export elastiqConfFile=${elastiqConfFile:-$elastiqDefaultConfFile}  # defaults to syswide file
 export elastiqUser=${elastiqUser:-elastiq}  # defaults to 'elastiq'
-export elastiqCommand="python $elastiqRealBin --logdir=\"$elastiqLogFileDir\" --config=\"$elastiqConfFile\""
+export elastiqCommand="python $elastiqRealBin --logdir=$elastiqLogFileDir --config=$elastiqConfFile"
 
 # Permissions for logfile dir
 mkdir -p "$elastiqLogFileDir" 2> /dev/null
