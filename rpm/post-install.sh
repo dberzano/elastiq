@@ -1,6 +1,7 @@
 #!/bin/sh
 useradd elastiq --shell /sbin/nologin --no-create-home --system --user-group --home-dir /var/lib/elastiq
-if [ $? != 9 ] && [ $? != 0 ] ; then
+R=$?
+if [ $R != 9 ] && [ $R != 0 ] ; then
   exit 1
 fi
 mkdir -p /var/lib/elastiq /var/log/elastiq
