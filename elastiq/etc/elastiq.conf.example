@@ -44,3 +44,11 @@ api_version = 2013-02-01
 key_name = 
 flavour = 
 user_data_b64 = 
+
+# Used for substituting %variables% (like %ipv4%) in the input user-data.
+# If not specified, they will be automatically guessed from the current config.
+# In 99% of the cases you do not have to specify anything here.
+#[substitute]
+#ipv4 =
+#ipv6 =
+#fqdn =
