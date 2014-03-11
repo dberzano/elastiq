@@ -32,7 +32,17 @@ mkdir -p "$PyFull"
 if [ "$1" == 'install' ] ; then
   python setup.py install "$@" --prefix="$PyBase"
 elif [ "$1" == 'rpm' ] ; then
-  python setup.py bdist_rpm --post-install=rpm/post-install.sh --post-uninstall=rpm/post-uninstall.sh
+  T=$( mktemp /tmp/elastiq-rpm.XXXXX )
+  python setup.py bdist_rpm --post-install=rpm/post-install.sh --post-uninstall=rpm/post-uninstall.sh > "$T" 2>&1
+  if [ $? == 0 ] ; then
+    RPM=$( ls -1rt $PWD/dist/*.noarch.rpm | tail -n1 )
+    echo "Install with one of:"
+    echo "  yum localinstall -y $RPM"
+    echo "  rpm -ivh $RPM"
+  else
+    cat "$T"
+  fi
+  rm -f "$T"
 elif [ "$1" == 'distclean' ] ; then
   rm -rf build/ dist/ *.egg-info/
 else
