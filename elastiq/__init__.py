@@ -74,6 +74,16 @@ cf['debug'] = {
   'dry_run_boot_vms': 0
 
 }
+cf['substitute'] = {
+
+  # Variables substituted in the user-data template.
+  # If set, they have precedence on automatic detection.
+  # In most cases you do not need to set them manually.
+  'ipv4': None,
+  'ipv6': None,
+  'fqdn': None
+
+}
 
 ec2h = None
 ec2img = None
@@ -587,6 +597,34 @@ def change_vms_allegedly_running(st, delta):
     })
 
 
+def get_main_ipv4():
+  """Gets the main IPv4 address used for outbound connections.
+  """
+  try:
+    # No data is actually transmitted (UDP)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect( ('8.8.8.8', 53) )
+    real_ip = s.getsockname()[0]
+    s.close()
+    return real_ip
+  except socket.error as e:
+    logging.error("Cannot retrieve current IPv4 address: %s" % e)
+    return None
+
+def get_main_ipv6():
+  """Gets the main IPv6 address used for outbound connections.
+  """
+  try:
+    # No data is actually transmitted (UDP)
+    s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    s.connect( ('2001:4860:4860::8888', 53) )
+    real_ip = s.getsockname()[0]
+    s.close()
+    return real_ip
+  except socket.error as e:
+    logging.error("Cannot retrieve current IPv6 address: %s" % e)
+    return None
+
 def main(argv):
 
   global ec2h, ec2img, user_data, BatchPlugin
@@ -664,6 +702,36 @@ def main(argv):
   except TypeError:
     logging.error("Invalid base64 data for user-data!")
     user_data = ''
+
+  if user_data != '':
+
+    # Parse user-data and substitute variables. We currently support:
+    # %ipv4%, %ipv6%, %fqdn%
+    # Can be overridden by the [substitute] section in configuration
+
+    if user_data.find('%ipv4%'):
+      ipv4 = cf['substitute']['ipv4']
+      if ipv4 is None:
+        ipv4 = get_main_ipv4()
+      if ipv4 is None:
+        logging.warning("Cannot substitute IPv4 variable in user-data")
+      else:
+        user_data = user_data.replace('%ipv4%', ipv4)
+
+    if user_data.find('%ipv6%'):
+      ipv6 = cf['substitute']['ipv6']
+      if ipv6 is None:
+        ipv6 = get_main_ipv6()
+      if ipv6 is None:
+        logging.warning("Cannot substitute IPv6 variable in user-data")
+      else:
+        user_data = user_data.replace('%ipv6%', ipv6)
+
+    if user_data.find('%fqdn%'):
+      fqdn = cf['substitute']['fqdn']
+      if fqdn is None:
+        fqdn = socket.getfqdn()
+      user_data = user_data.replace('%fqdn%', fqdn)
 
   # State variables
   internal_state = {
