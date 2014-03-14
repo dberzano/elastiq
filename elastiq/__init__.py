@@ -709,7 +709,7 @@ def main(argv):
     # %ipv4%, %ipv6%, %fqdn%
     # Can be overridden by the [substitute] section in configuration
 
-    if user_data.find('%ipv4%'):
+    if user_data.find('%ipv4%') > -1:
       ipv4 = cf['substitute']['ipv4']
       if ipv4 is None:
         ipv4 = get_main_ipv4()
@@ -718,7 +718,7 @@ def main(argv):
       else:
         user_data = user_data.replace('%ipv4%', ipv4)
 
-    if user_data.find('%ipv6%'):
+    if user_data.find('%ipv6%') > -1:
       ipv6 = cf['substitute']['ipv6']
       if ipv6 is None:
         ipv6 = get_main_ipv6()
@@ -727,7 +727,7 @@ def main(argv):
       else:
         user_data = user_data.replace('%ipv6%', ipv6)
 
-    if user_data.find('%fqdn%'):
+    if user_data.find('%fqdn%') > -1:
       fqdn = cf['substitute']['fqdn']
       if fqdn is None:
         fqdn = socket.getfqdn()
