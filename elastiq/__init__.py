@@ -548,8 +548,6 @@ def check_vms(st):
           logging.info("Below minimum quota (%d VMs): requesting %d more VMs" % \
             (min_vms,n_vms))
           inst_ok = ec2_scale_up(n_vms, valid_hostnames=st['workers_status'].keys())
-          # n_ok = len(inst_ok)
-          # change_vms_allegedly_running(st, n_ok)
           for inst in inst_ok:
             change_vms_allegedly_running(st, 1, inst)
 
