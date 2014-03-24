@@ -587,8 +587,8 @@ def check_queue(st):
           logging.info("Waiting jobs: %d (above threshold of %d for more than %ds)" % \
             (n_waiting_jobs, cf['elastiq']['waiting_jobs_threshold'], cf['elastiq']['waiting_jobs_time_s']))
           list_ok = ec2_scale_up( round(n_waiting_jobs / float(cf['elastiq']['n_jobs_per_vm'])), valid_hostnames=st['workers_status'].keys() )
-          n_ok = len(list_ok)
-          change_vms_allegedly_running(st, n_ok)
+          for inst in list_ok:
+            change_vms_allegedly_running(st, 1, inst)
           st['first_seen_above_threshold'] = -1
         else:
           # Above threshold but not for enough time
