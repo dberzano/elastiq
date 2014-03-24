@@ -28,7 +28,7 @@ cf['elastiq'] = {
   'sleep_s': 5,
   'check_queue_every_s': 15,
   'check_vms_every_s': 45,
-  'check_vms_in_error_every_s': 10,
+  'check_vms_in_error_every_s': 20,
   'estimated_vm_deploy_time_s': 600,
 
   # Conditions to start new VMs
