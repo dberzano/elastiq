@@ -550,6 +550,11 @@ def check_vms(st):
           inst_ok = ec2_scale_up(n_vms, valid_hostnames=st['workers_status'].keys())
           for inst in inst_ok:
             change_vms_allegedly_running(st, 1, inst)
+            st['event_queue'].append({
+              'action': 'check_owned_instance',
+              'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+              'params': [ inst ]
+            })
 
     # OK: schedule when configured
     sched_when = time.time() + cf['elastiq']['check_vms_every_s']
@@ -562,6 +567,56 @@ def check_vms(st):
     'action': 'check_vms',
     'when': sched_when
   }
+
+
+def check_owned_instance(st, instance_id):
+  """Checks if a certain instance ID is in the list of hosts attached to the
+  batch system. If not, an instance termination is triggered."""
+
+  logging.info("Checking owned instance %s..." % instance_id)
+
+  global owned_instances
+
+  inst = None
+
+  # Get information from EC2: we need the IP address
+  try:
+    inst_list = ec2h.get_only_instances( [ instance_id ] )
+    if len(inst_list) == 1:
+      inst = inst_list[0]
+  except Exception as e:
+    logging.error("Instance %s not found" % instance_id)
+    return
+
+  # Check if the instance is in the list (using cached status)
+  found = False
+  for h in st['workers_status'].keys():
+    if gethostbycondorname(h) == inst.private_ip_address:
+      found = True
+      break
+
+  # Deal with errors
+  if not found:
+    logging.error("Instance %s (with IP %s) has not joined the cluster after %ds: terminating it" % (instance_id, inst.private_ip_address, cf['elastiq']['estimated_vm_deploy_time_s']))
+
+    try:
+      inst.terminate()
+      owned_instances.remove(instance_id)
+      save_owned_instances()
+      logging.info("Forcing EC2 shutdown of %s: OK" % instance_id)
+    except Exception as e:
+      # Recheck in a while (10s) in case termination fails
+      logging.error("Forcing EC2 shutdown of %s failed: rescheduling check" % instance_id)
+      return {
+        'action': 'check_owned_instance',
+        'when': time.time() + 10,
+        'params': [ instance_id ]
+      }
+
+  else:
+    logging.debug("Instance %s (with IP %s) successfully joined the cluster within %ds" % (instance_id, inst.private_ip_address, cf['elastiq']['estimated_vm_deploy_time_s']))
+
+  return
 
 
 def check_queue(st):
@@ -589,6 +644,11 @@ def check_queue(st):
           list_ok = ec2_scale_up( round(n_waiting_jobs / float(cf['elastiq']['n_jobs_per_vm'])), valid_hostnames=st['workers_status'].keys() )
           for inst in list_ok:
             change_vms_allegedly_running(st, 1, inst)
+            st['event_queue'].append({
+              'action': 'check_owned_instance',
+              'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+              'params': [ inst ]
+            })
           st['first_seen_above_threshold'] = -1
         else:
           # Above threshold but not for enough time
@@ -773,6 +833,11 @@ def check_vm_errors(st):
     list_ok = ec2_scale_up( n_vms_to_restart, valid_hostnames=st['workers_status'].keys() )
     for inst in list_ok:
       change_vms_allegedly_running(st, 1, inst)
+      st['event_queue'].append({
+        'action': 'check_owned_instance',
+        'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+        'params': [ inst ]
+      })
     if len(list_ok) == n_vms_to_restart:
       logging.debug("Successfully requested all the new replacement VMs: %s" % ','.join(list_ok))
     else:
@@ -947,6 +1012,8 @@ def main(argv):
           r = check_queue(internal_state, *p)
         elif evt['action'] == 'change_vms_allegedly_running':
           r = change_vms_allegedly_running(internal_state, *p)
+        elif evt['action'] == 'check_owned_instance':
+          r = check_owned_instance(internal_state, *p)
 
         if r is not None:
           internal_state['event_queue'].append(r)
