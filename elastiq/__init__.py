@@ -28,6 +28,7 @@ cf['elastiq'] = {
   'sleep_s': 5,
   'check_queue_every_s': 15,
   'check_vms_every_s': 45,
+  'check_vms_in_error_every_s': 20,
   'estimated_vm_deploy_time_s': 600,
 
   # Conditions to start new VMs
@@ -93,6 +94,12 @@ htcondor_ip_name_re = re.compile('^(([0-9]{1,3}-){3}[0-9]{1,3})\.')
 
 # Alias to the batch plugin module
 BatchPlugin = None
+
+# List of owned instances (instance IDs)
+owned_instances = []
+
+# Text file containing the list of managed instances (one instance ID per line)
+state_file = None
 
 
 def type2str(any):
@@ -232,20 +239,21 @@ def robust_cmd(params, max_attempts=5, suppress_stderr=True):
 
 
 def ec2_scale_up(nvms, valid_hostnames=None):
-  """Requests a certain number of VMs using the EC2 API. Returns the number of
-  VMs launched successfully. Note: max_quota is honored by checking the *total*
-  number of running VMs, and not only the ones recognized by HTCondor. This is
-  done on purpose to avoid overflowing the cloud (possibly a non-free one) with
-  misconfigured VMs that don't join the HTCondor cluster."""
+  """Requests a certain number of VMs using the EC2 API. Returns a list of
+  instance IDs of VMs launched successfully. Note: max_quota is honored by
+  checking the *total* number of running VMs, and not only the ones recognized
+  by HTCondor. This is done on purpose to avoid overflowing the cloud (possibly
+  a non-free one) with misconfigured VMs that don't join the HTCondor cluster.
+  """
 
-  global ec2img
+  global ec2img, owned_instances
 
   # Try to get image if necessary
   if ec2img is None:
     ec2img = ec2_image(cf['ec2']['image_id'])
     if ec2img is None:
       logging.error("Cannot scale up: image id %s not found" % ec2_image(cf['ec2']['image_id']))
-      return 0
+      return []
 
   n_succ = 0
   n_fail = 0
@@ -254,7 +262,7 @@ def ec2_scale_up(nvms, valid_hostnames=None):
   inst = ec2_running_instances(valid_hostnames)
   if inst is None:
     logging.error("No list of instances can be retrieved from EC2")
-    return 0
+    return []
 
   n_running_vms = len(inst)  # number of *total* VMs running (also the ones *not* owned by HTCondor)
   if cf['quota']['max_vms'] >= 1:
@@ -269,16 +277,25 @@ def ec2_scale_up(nvms, valid_hostnames=None):
     n_vms_to_start = int(nvms)
 
   # Launch VMs
+  inst_ok = []
   for i in range(1, n_vms_to_start+1):
 
     success = False
     if int(cf['debug']['dry_run_boot_vms']) == 0:
       try:
-        ec2img.run(
+
+        # Returns the reservation
+        reserv = ec2img.run(
           key_name=cf['ec2']['key_name'],
           user_data=user_data,
           instance_type=cf['ec2']['flavour']
         )
+
+        # Get the single instance ID from the reservation
+        new_inst_id = reserv.instances[0].id
+        owned_instances.append( new_inst_id )
+        inst_ok.append( new_inst_id )
+
         success = True
       except Exception:
         logging.error("Cannot run instance via EC2: check your \"hard\" quota")
@@ -289,14 +306,18 @@ def ec2_scale_up(nvms, valid_hostnames=None):
 
     if success:
       n_succ+=1
-      logging.info("VM launched OK. Requested: %d/%d | Success: %d | Failed: %d" % \
-        (i, n_vms_to_start, n_succ, n_fail))
+      logging.info("VM launched OK. Requested: %d/%d | Success: %d | Failed: %d | ID: %s" % \
+        (i, n_vms_to_start, n_succ, n_fail, new_inst_id))
     else:
       n_fail+=1
       logging.info("VM launch fail. Requested: %d/%d | Success: %d | Failed: %d" % \
         (i, n_vms_to_start, n_succ, n_fail))
 
-  return n_succ
+  # Dump owned instances to file (if something changed)
+  if n_succ > 0:
+    save_owned_instances()
+
+  return inst_ok
 
 
 def ec2_running_instances(hostnames=None):
@@ -352,15 +373,17 @@ def ec2_running_instances(hostnames=None):
 
 def ec2_scale_down(hosts, valid_hostnames=None):
   """Asks the Cloud to shutdown hosts corresponding to the given hostnames
-  by using the EC2 interface. Returns the number of hosts successfully shut
-  down. Note: minimum number of VMs is honored by considering, as number of
-  currently running VMs, the sole VMs known by the batch system. This behavior
-  is different than what we do for the maximum quota, where we take into
-  account all the running VMs to avoid cloud overflowing."""
+  by using the EC2 interface. Returns the list of instance IDs shut off
+  successfully. Note: minimum number of VMs is honored by considering, as
+  number of currently running VMs, the sole VMs known by the batch system. This
+  behavior is different than what we do for the maximum quota, where we take
+  into account all the running VMs to avoid cloud overflowing."""
+
+  global owned_instances
 
   if len(hosts) == 0:
     logging.warning("No hosts to shut down!")
-    return 0
+    return []
 
   logging.info("Requesting shutdown of %d VMs..." % len(hosts))
 
@@ -368,7 +391,7 @@ def ec2_scale_down(hosts, valid_hostnames=None):
   inst = ec2_running_instances(valid_hostnames)
   if inst is None or len(inst) == 0:
     logging.warning("No list of instances can be retrieved from EC2")
-    return 0
+    return []
 
   # Resolve hostnames
   ips = []
@@ -402,6 +425,7 @@ def ec2_scale_down(hosts, valid_hostnames=None):
 
   n_succ = 0
   n_fail = 0
+  list_shutdown_ok = []
 
   if max_vms_to_shutdown <= 0:
     logging.info("Not shutting down any VM to honor the minimum quota of %d" % cf['quota']['min_vms'])
@@ -418,6 +442,8 @@ def ec2_scale_down(hosts, valid_hostnames=None):
       if int(cf['debug']['dry_run_shutdown_vms']) == 0:
         try:
           i.terminate()
+          list_shutdown_ok.append(i.id)
+          owned_instances.remove(i.id)
           logging.debug("Shutdown via EC2 of %s succeeded" % ipv4)
           success = True
         except Exception, e:
@@ -430,8 +456,8 @@ def ec2_scale_down(hosts, valid_hostnames=None):
       # Messages
       if success:
         n_succ+=1
-        logging.info("VM shutdown requested OK. Status: total=%d | success=%d | failed: %d" % \
-          (n_succ+n_fail, n_succ, n_fail))
+        logging.info("VM shutdown requested OK. Status: total=%d | success=%d | failed: %d | ID: %s" % \
+          (n_succ+n_fail, n_succ, n_fail, i.id))
       else:
         n_fail+=1
         logging.info("VM shutdown request fail. Status: total=%d | success=%d | failed: %d" % \
@@ -441,7 +467,11 @@ def ec2_scale_down(hosts, valid_hostnames=None):
       if n_succ == max_vms_to_shutdown:
         break
 
-  return n_succ
+    # Save to file the list of owned instances
+    if n_succ > 0:
+      save_owned_instances()
+
+  return list_shutdown_ok
 
 
 def ec2_image(image_id):
@@ -499,8 +529,8 @@ def check_vms(st):
         hosts_shutdown.append(host)
 
     if len(hosts_shutdown) > 0:
-      n_ok = ec2_scale_down(hosts_shutdown, valid_hostnames=st['workers_status'].keys())
-      change_vms_allegedly_running(st, -n_ok)
+      inst_ok = ec2_scale_down(hosts_shutdown, valid_hostnames=st['workers_status'].keys())
+      change_vms_allegedly_running(st, -len(inst_ok))
 
     # Scale up to reach the minimum quota, if any
     min_vms = cf['quota']['min_vms']
@@ -517,8 +547,14 @@ def check_vms(st):
         if n_vms > 0:
           logging.info("Below minimum quota (%d VMs): requesting %d more VMs" % \
             (min_vms,n_vms))
-          n_ok = ec2_scale_up(n_vms, valid_hostnames=st['workers_status'].keys())
-          change_vms_allegedly_running(st, n_ok)
+          inst_ok = ec2_scale_up(n_vms, valid_hostnames=st['workers_status'].keys())
+          for inst in inst_ok:
+            change_vms_allegedly_running(st, 1, inst)
+            st['event_queue'].append({
+              'action': 'check_owned_instance',
+              'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+              'params': [ inst ]
+            })
 
     # OK: schedule when configured
     sched_when = time.time() + cf['elastiq']['check_vms_every_s']
@@ -531,6 +567,56 @@ def check_vms(st):
     'action': 'check_vms',
     'when': sched_when
   }
+
+
+def check_owned_instance(st, instance_id):
+  """Checks if a certain instance ID is in the list of hosts attached to the
+  batch system. If not, an instance termination is triggered."""
+
+  logging.info("Checking owned instance %s..." % instance_id)
+
+  global owned_instances
+
+  inst = None
+
+  # Get information from EC2: we need the IP address
+  try:
+    inst_list = ec2h.get_only_instances( [ instance_id ] )
+    if len(inst_list) == 1:
+      inst = inst_list[0]
+  except Exception as e:
+    logging.error("Instance %s not found" % instance_id)
+    return
+
+  # Check if the instance is in the list (using cached status)
+  found = False
+  for h in st['workers_status'].keys():
+    if gethostbycondorname(h) == inst.private_ip_address:
+      found = True
+      break
+
+  # Deal with errors
+  if not found:
+    logging.error("Instance %s (with IP %s) has not joined the cluster after %ds: terminating it" % (instance_id, inst.private_ip_address, cf['elastiq']['estimated_vm_deploy_time_s']))
+
+    try:
+      inst.terminate()
+      owned_instances.remove(instance_id)
+      save_owned_instances()
+      logging.info("Forcing EC2 shutdown of %s: OK" % instance_id)
+    except Exception as e:
+      # Recheck in a while (10s) in case termination fails
+      logging.error("Forcing EC2 shutdown of %s failed: rescheduling check" % instance_id)
+      return {
+        'action': 'check_owned_instance',
+        'when': time.time() + 10,
+        'params': [ instance_id ]
+      }
+
+  else:
+    logging.debug("Instance %s (with IP %s) successfully joined the cluster within %ds" % (instance_id, inst.private_ip_address, cf['elastiq']['estimated_vm_deploy_time_s']))
+
+  return
 
 
 def check_queue(st):
@@ -555,8 +641,14 @@ def check_queue(st):
           # Above threshold time-wise and jobs-wise: do something
           logging.info("Waiting jobs: %d (above threshold of %d for more than %ds)" % \
             (n_waiting_jobs, cf['elastiq']['waiting_jobs_threshold'], cf['elastiq']['waiting_jobs_time_s']))
-          n_ok = ec2_scale_up( round(n_waiting_jobs / float(cf['elastiq']['n_jobs_per_vm'])), valid_hostnames=st['workers_status'].keys() )
-          change_vms_allegedly_running(st, n_ok)
+          list_ok = ec2_scale_up( round(n_waiting_jobs / float(cf['elastiq']['n_jobs_per_vm'])), valid_hostnames=st['workers_status'].keys() )
+          for inst in list_ok:
+            change_vms_allegedly_running(st, 1, inst)
+            st['event_queue'].append({
+              'action': 'check_owned_instance',
+              'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+              'params': [ inst ]
+            })
           st['first_seen_above_threshold'] = -1
         else:
           # Above threshold but not for enough time
@@ -581,7 +673,7 @@ def check_queue(st):
   }
 
 
-def change_vms_allegedly_running(st, delta):
+def change_vms_allegedly_running(st, delta, instance_id=None):
   """Changes the number of VMs allegedly running by adding a delta."""
   st['vms_allegedly_running'] += delta
   if st['vms_allegedly_running'] < 0:
@@ -593,7 +685,7 @@ def change_vms_allegedly_running(st, delta):
     st['event_queue'].append({
       'action': 'change_vms_allegedly_running',
       'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
-      'params': [ -delta ]
+      'params': [ -delta, instance_id ]
     })
 
 
@@ -611,6 +703,7 @@ def get_main_ipv4():
     logging.error("Cannot retrieve current IPv4 address: %s" % e)
     return None
 
+
 def get_main_ipv6():
   """Gets the main IPv6 address used for outbound connections.
   """
@@ -625,26 +718,165 @@ def get_main_ipv6():
     logging.error("Cannot retrieve current IPv6 address: %s" % e)
     return None
 
+
+def load_owned_instances():
+  """Overwrites the global list of running instances with the one provided by
+  the file. If the file cannot be read, the list will be emptied. This is not
+  considered an error but a warning.
+  """
+
+  global owned_instances
+
+  owned_instances = []
+  try:
+    with open(state_file, 'r') as f:
+      for line in f:
+        # Strip spaces and skip empty lines
+        inst = line.strip()
+        if inst != '':
+          owned_instances.append(inst)
+    logging.info("Loaded list of owned instances: %s" % ','.join(owned_instances))
+  except IOError:
+    logging.warning("Cannot read initial state from %s" % state_file)
+
+
+def save_owned_instances():
+  """Dumps the current list of owned instances to file, an instance ID per
+  line.
+  """
+
+  try:
+    with open(state_file, 'w') as f:
+      for inst in owned_instances:
+        f.write(inst + '\n')
+    os.chmod(state_file, 0600)
+    logging.debug("Saved list of owned instances: %s" % ','.join(owned_instances))
+  except (IOError, OSError) as e:
+    logging.error("Cannot save list of owned instances %s: %s" % (state_file,e))
+    return False
+
+  return True
+
+
+def check_vm_errors(st):
+  """Check virtual machines launched by us in error state, and relaunch them.
+  Also clean up list of owned instances by removing unfound ones.
+  """
+
+  global owned_instances
+  owned_instances_changed = False
+
+  logging.info("Check VMs in error state...")
+
+  # Get all instances in "error" state
+  try:
+    all_instances = ec2h.get_only_instances()
+
+    # Clean up list from nonexisting instances
+    new_owned_instances = []
+    for o in owned_instances:
+      keep = False
+      for a in all_instances:
+        if o == a.id:
+          keep = True
+          break
+      if keep:
+        new_owned_instances.append(o)
+      else:
+        logging.debug("Unknown owned instance removed: %s" % o)
+        owned_instances_changed = True
+    if owned_instances_changed:
+      owned_instances = new_owned_instances
+
+    # Only the ones in error state (generator)
+    error_instances = ( x for x in all_instances if x.state == 'error' and x.id in owned_instances )
+
+  except Exception as e:
+    logging.error("Can't get list of owned EC2 instances in error: %s" % e)
+    error_instances = []
+
+  # Print them
+  n_vms_to_restart = 0
+  for ei in error_instances:
+
+    # Operations to do if a VM is in error:
+    # 1. Terminate it
+    # 2. Remove it from the managed list
+    # 3. Decrement VMs allegedly running
+    # 3. Cancel event restoring VMs allegedly running
+    # 4. Run new instances (ignoring errors)
+    # 5. Increase VMs allegedly running
+
+    # Terminate VM in error
+    try:
+      ei.terminate()
+      logging.debug("Shutdown via EC2 of %s in error state succeeded" % ei.id)
+    except Exception as e:
+      logging.error("Shutdown via EC2 failed for %s in error state: %s" % (ei.id, e))
+      continue
+
+    # Remove from "owned" list
+    owned_instances.remove(ei.id)
+    owned_instances_changed = True
+
+    # Change VMs allegedly running
+    change_vms_allegedly_running(st, -1)
+
+    # Remove event for the current instance
+    st['event_queue'][:] = [ x for x in st['event_queue'] if x['action'] != 'change_vms_allegedly_running' or x['params'][1] != ei.id ]
+
+    # Restart that number of VMs
+    n_vms_to_restart = n_vms_to_restart + 1
+
+  # Attempt to run replacement VMs (no retry in this case!)
+  if n_vms_to_restart > 0:
+    list_ok = ec2_scale_up( n_vms_to_restart, valid_hostnames=st['workers_status'].keys() )
+    for inst in list_ok:
+      change_vms_allegedly_running(st, 1, inst)
+      st['event_queue'].append({
+        'action': 'check_owned_instance',
+        'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+        'params': [ inst ]
+      })
+    if len(list_ok) == n_vms_to_restart:
+      logging.debug("Successfully requested all the new replacement VMs: %s" % ','.join(list_ok))
+    else:
+      logging.debug("Cannot request all the replacement VMs: only %d/%d succeeded (%s)" % (len(list_ok), n_vms_to_restart, ','.join(list_ok)))
+
+  # Save to disk
+  if owned_instances_changed:
+    save_owned_instances()
+
+  # Re-run this command in X seconds
+  return {
+    'action': 'check_vm_errors',
+    'when': time.time() + cf['elastiq']['check_vms_in_error_every_s']
+  }
+
+
 def main(argv):
 
-  global ec2h, ec2img, user_data, BatchPlugin
+  global ec2h, ec2img, user_data, BatchPlugin, state_file
 
   config_file = None
   log_directory = None
+  state_file = None  # global
 
   # Parse options
   try:
-    opts, args = getopt.getopt(argv, '', [ 'config=', 'logdir=' ])
+    opts, args = getopt.getopt(argv, '', [ 'config=', 'logdir=', 'statefile=' ])
     for o, a in opts:
       if o == '--config':
         config_file = a
       elif o == '--logdir':
         log_directory = a
-    if config_file is None:
+      elif o == '--statefile':
+        state_file = a
+    if config_file is None or state_file is None:
       raise getopt.GetoptError('some mandatory options were not specified.')
   except getopt.GetoptError as e:
     print "elastiq: %s" % e
-    print 'Specify a configuration file with --config= and a log file directory with --logdir='
+    print 'Specify a configuration file with --config=, a log file directory with --logdir= (optional) and a state file with --statefile='
     sys.exit(1)
 
   # Configure logging
@@ -656,6 +888,9 @@ def main(argv):
 
   # Register signal
   signal.signal(signal.SIGINT, exit_main_loop)
+
+  # Load initial state
+  load_owned_instances()
 
   # Read configuration
   if conf(config_file) == False:
@@ -739,8 +974,9 @@ def main(argv):
     'workers_status': {},
     'vms_allegedly_running': 0,
     'event_queue': [
-      {'action': 'check_vms',   'when': 0},
-      {'action': 'check_queue', 'when': 0}
+      {'action': 'check_vm_errors', 'when': 0},
+      {'action': 'check_vms',       'when': 0},
+      {'action': 'check_queue',     'when': 0}
     ]
   }
 
@@ -770,10 +1006,14 @@ def main(argv):
         # Action
         if evt['action'] == 'check_vms':
           r = check_vms(internal_state, *p)
+        elif evt['action'] == 'check_vm_errors':
+          r = check_vm_errors(internal_state, *p)
         elif evt['action'] == 'check_queue':
           r = check_queue(internal_state, *p)
         elif evt['action'] == 'change_vms_allegedly_running':
           r = change_vms_allegedly_running(internal_state, *p)
+        elif evt['action'] == 'check_owned_instance':
+          r = check_owned_instance(internal_state, *p)
 
         if r is not None:
           internal_state['event_queue'].append(r)

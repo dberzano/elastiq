@@ -19,6 +19,7 @@
 sleep_s = 5
 check_queue_every_s = 15
 check_vms_every_s = 45
+check_vms_in_error_every_s = 20
 waiting_jobs_threshold = 10
 waiting_jobs_time_s = 100
 n_jobs_per_vm = 4
