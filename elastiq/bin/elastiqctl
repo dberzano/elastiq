@@ -46,10 +46,12 @@ if [ `whoami` == 'root' ] ; then
   export elastiqDefaultSysconfig=$( FindFirst '/etc/default/elastiq' '/etc/sysconfig/elastiq' )
   export elastiqDefaultLogFileDir='/var/log/elastiq'
   export elastiqDefaultConfFile='/etc/elastiq.conf'
+  export elastiqDefaultStateFile='/var/lib/elastiq/state'
 else
   export elastiqDefaultSysconfig="$HOME/.elastiq/startup.sh"
   export elastiqDefaultLogFileDir="$HOME/.elastiq/log"
   export elastiqDefaultConfFile="$HOME/.elastiq/elastiq.conf"
+  export elastiqDefaultStateFile="$HOME/.elastiq/state"
 fi
 
 # Load environment (ignore error if not found)
@@ -60,8 +62,9 @@ export elastiqRealBin=$( FindFirst "$(which elastiq-real.py 2> /dev/null)" "$PWD
 export elastiqLogFileDir=${elastiqLogFileDir:-$elastiqDefaultLogFileDir}  # defaults to syswide path
 export elastiqLogFile="${elastiqLogFileDir}/elastiq.log"
 export elastiqConfFile=${elastiqConfFile:-$elastiqDefaultConfFile}  # defaults to syswide file
+export elastiqStateFile=${elastiqStateFile:-$elastiqDefaultStateFile}  # defaults to syswide path
 export elastiqUser=${elastiqUser:-elastiq}  # defaults to 'elastiq'
-export elastiqCommand="python $elastiqRealBin --logdir=$elastiqLogFileDir --config=$elastiqConfFile"
+export elastiqCommand="python $elastiqRealBin --logdir=$elastiqLogFileDir --config=$elastiqConfFile --statefile=$elastiqStateFile"
 
 # Permissions for logfile dir
 mkdir -p "$elastiqLogFileDir" 2> /dev/null
@@ -73,6 +76,11 @@ if [ $? != 0 ] ; then
   exit 3
 fi
 rm -f "$elastiqLogFileDir"/.test
+
+# Permissions for statefile dir
+mkdir -p $( dirname "$elastiqStateFile" ) 2> /dev/null
+chown "$elastiqUser" "$elastiqStateFile" 2> /dev/null
+chmod 0600 "$elastiqStateFile" 2> /dev/null
 
 #
 # Functions
