@@ -326,8 +326,6 @@ def ec2_running_instances(hostnames=None):
   instances whose IP address matches the resolved input hostnames. Returned
   object is a list of boto instances."""
 
-  global owned_instances
-
   try:
     res = ec2h.get_all_reservations()
   except Exception, e:
@@ -351,27 +349,10 @@ def ec2_running_instances(hostnames=None):
   else:
     logging.debug("No input hostnames given")
 
-  # Debug: print all instances
-  # for r in res:
-  #   for i in r.instances:
-  #     logging.debug("*** Instance info: id=%s, state=%s, state_code=%d" % (i.id, i.state, i.state_code))
-  #     my_instance_list = ec2h.get_only_instances( [ i.id ] )
-  #     for mi in my_instance_list:
-  #       logging.debug("    Instance request returned: %s" % mi)
-
-  # Add only running instances and clean up unowned instances
+  # Add only running instances
   inst = []
-  new_owned_instances = []
-  owned_instances_changed = False
   for r in res:
     for i in r.instances:
-
-      # Check owned instances
-      if i.id in owned_instances:
-        new_owned_instances.append( i.id )
-      else:
-        owned_instances_changed = True
-
       if i.state == 'running':
         if hostnames is None:
           # Append all
@@ -386,11 +367,6 @@ def ec2_running_instances(hostnames=None):
               break
           if not found:
             logging.warning("Cannot find instance %s in the list of known IPs" % i.private_ip_address)
-
-  # Dump internal state if changed
-  if owned_instances_changed:
-    owned_instances = new_owned_instances
-    save_owned_instances()
 
   return inst
 
@@ -726,6 +702,7 @@ def save_owned_instances():
 
 def check_vm_errors(st):
   """Check virtual machines launched by us in error state, and relaunch them.
+  Also clean up list of owned instances by removing unfound ones.
   """
 
   global owned_instances
@@ -735,11 +712,30 @@ def check_vm_errors(st):
 
   # Get all instances in "error" state
   try:
-    launched_instances = ec2h.get_only_instances()
-    error_instances = ( x for x in launched_instances if x.state == 'error' and x.id in owned_instances )  # generator (iteratable once)
+    all_instances = ec2h.get_only_instances()
+
+    # Clean up list from nonexisting instances
+    new_owned_instances = []
+    for o in owned_instances:
+      keep = False
+      for a in all_instances:
+        if o == a.id:
+          keep = True
+          break
+      if keep:
+        new_owned_instances.append(o)
+      else:
+        logging.debug("Unknown owned instance removed: %s" % o)
+        owned_instances_changed = True
+    if owned_instances_changed:
+      owned_instances = new_owned_instances
+
+    # Only the ones in error state (generator)
+    error_instances = ( x for x in all_instances if x.state == 'error' and x.id in owned_instances )
+
   except Exception as e:
     logging.error("Can't get list of owned EC2 instances in error: %s" % e)
-    return None # TODO: redo in any case
+    error_instances = []
 
   # Print them
   n_vms_to_restart = 0
