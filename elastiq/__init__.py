@@ -584,6 +584,8 @@ def check_owned_instance(st, instance_id):
     inst_list = ec2h.get_only_instances( [ instance_id ] )
     if len(inst_list) == 1:
       inst = inst_list[0]
+    else:
+      raise Exception
   except Exception as e:
     logging.error("Instance %s not found" % instance_id)
     return
