@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
     # Metadata
     name = 'elastiq',
-    version = '0.9.4',
+    version = '0.9.5',
     author = 'Dario Berzano',
     author_email = 'dario.berzano@cern.ch',
     description = 'Monitor a batch system status and queue to scale up/down a virtual cluster',
