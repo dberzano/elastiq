@@ -32,7 +32,7 @@ cf['elastiq'] = {
   'estimated_vm_deploy_time_s': 600,
 
   # Conditions to start new VMs
-  'waiting_jobs_threshold': 10,
+  'waiting_jobs_threshold': 0,
   'waiting_jobs_time_s': 100,
   'n_jobs_per_vm': 4,
 
