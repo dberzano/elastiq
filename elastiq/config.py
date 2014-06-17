@@ -1,12 +1,17 @@
+import logging
+
 from ConfigParser import SafeConfigParser
 
 
 class Config:
 
-  """Handles configuration files.
+  """Handles configuration.
   """
 
   def __init__(self, config_file_name, config_defaults):
+    """
+    """
+    self._logger = logging.getLogger(__name__)
     self._fn = config_file_name
     if type(config_defaults) is not dict:
       raise ConfigError('Malformed configuration defaults')
@@ -36,7 +41,7 @@ class Config:
         except Exception, e:
           pass
 
-        print "Config: %s.%s = %s (%s)" % (sec_name, key, str(val), ('default' if using_default else 'from file'))
+        self._logger.info( '%s.%s = %s (%s)' % (sec_name, key, str(val), ('default' if using_default else 'from file')) )
 
 
     def get(self, section, key):
