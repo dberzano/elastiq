@@ -44,13 +44,13 @@ class Config:
         self._logger.info( '%s.%s = %s (%s)' % (sec_name, key, str(val), ('default' if using_default else 'from file')) )
 
 
-    def get(self, section, key):
-      """Gets a config value from [section] and key. Returns None if
-      it cannot be found, the config value otherwise.
-      """
-      if section in self._config:
-        return self._config[section].get(key)
-      return None
+  def get(self, section, key):
+    """Gets a config value from [section] and key. Returns None if
+    it cannot be found, the config value otherwise.
+    """
+    if section in self._config:
+      return self._config[section].get(key)
+    return None
 
 
 class ConfigError(Exception):
