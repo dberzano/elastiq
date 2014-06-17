@@ -1,7 +1,9 @@
 import sys, os
 import logging, logging.handlers
+import time # for dbg
 
 from elastiq.config import Config, ConfigError
+from elastiq.eventqueue import EventQueue, EventQueueError, EventQueueItem
 
 
 def config_log(log_directory):
@@ -36,6 +38,11 @@ def config_log(log_directory):
     return filename
 
   return None
+
+
+def test_function(a, b, c):
+  print 'a=%s b=%s c=%s' % (a, b, c)
+  return -123
 
 
 def main(argv):
@@ -97,6 +104,16 @@ def main(argv):
   except ConfigError as e:
     logger.critical( e )
     return 1
+
+  ## do ##
+
+  eq = EventQueue()
+  eq.push( EventQueueItem(function=test_function, parameters={ 'a':1, 'b':2, 'c':3 }, when=0, reschedule_after=123) )
+  #print e.do()
+  eq.loop()
+  eq.loop()
+
+  ## /do ##
 
   # smooth exit
   return 0
