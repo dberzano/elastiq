@@ -46,3 +46,7 @@ def main(argv):
     cf = Config('etc/elastiq.conf.example', config_defaults)
   except ConfigError as e:
     print "Error: %s" % e
+    return 1
+
+  # smooth exit
+  return 0
