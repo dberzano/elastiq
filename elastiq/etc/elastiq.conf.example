@@ -53,3 +53,21 @@ user_data_b64 =
 #ipv4 =
 #ipv6 =
 #fqdn =
+
+[cloud_cern]
+type = ec2
+api_url = https://dummy.ec2.server/ec2/
+aws_access_key_id = my_username
+aws_secret_access_key = my_password
+image_id = ami-00000000
+api_version = 2013-02-01
+key_name = 
+flavour = 
+user_data_b64 = 
+quota_min = 0
+quota_max = 2
+
+[cloud_dummy]
+type = dummy
+quota_min = 0
+quota_max = 2

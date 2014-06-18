@@ -72,17 +72,6 @@ def main(argv):
       # Log level (lower is more verbose)
       'log_level': 0
 
-    },
-
-    'substitute': {
-
-      # Variables substituted in the user-data template.
-      # If set, they have precedence on automatic detection.
-      # In most cases you do not need to set them manually.
-      'ipv4': None,
-      'ipv6': None,
-      'fqdn': None
-
     }
 
   }
@@ -107,11 +96,17 @@ def main(argv):
 
   ## do ##
 
-  eq = EventQueue()
-  eq.push( EventQueueItem(function=test_function, parameters={ 'a':1, 'b':2, 'c':3 }, when=0, reschedule_after=123) )
-  #print e.do()
-  eq.loop()
-  eq.loop()
+  cfval = cf.getboolean('elastiq', 'sleep_s')
+  logger.info( 'Configuration: %s (%s)' % ( cfval, type(cfval).__name__ ) )
+
+  for s in cf.getsections(r'^cloud_'):
+    logger.info("Section: %s" % (s))
+
+  # eq = EventQueue()
+  # eq.push( EventQueueItem(function=test_function, parameters={ 'a':1, 'b':2, 'c':3 }, when=0, reschedule_after=123) )
+  # #print e.do()
+  # eq.loop()
+  # eq.loop()
 
   ## /do ##
 

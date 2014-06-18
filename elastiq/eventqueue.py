@@ -37,7 +37,7 @@ class EventQueue:
           self._logger.debug('>> Not rescheduling %s' % (ev.get_function_name()))
           self._eq.remove(ev)
       else:
-        self._logger.info('>> Not due: %s' % (ev.get_function_name()))
+        self._logger.debug('>> Not due: %s' % (ev.get_function_name()))
 
 
   def print_status(self):
