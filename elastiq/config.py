@@ -2,7 +2,6 @@ import logging
 from itertools import tee
 from copy import deepcopy
 import re
-
 import ConfigParser
 
 

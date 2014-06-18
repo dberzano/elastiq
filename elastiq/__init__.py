@@ -4,6 +4,8 @@ import time # for dbg
 
 from elastiq.config import Config, ConfigError
 from elastiq.eventqueue import EventQueue, EventQueueError, EventQueueItem
+from elastiq.cloud import Cloud, CloudError, CloudEC2, CloudDummy
+from elastiq.node import Node, NodeError, NodeList
 
 
 def config_log(log_directory):
@@ -21,7 +23,7 @@ def config_log(log_directory):
   logging.basicConfig(level=level, format=format, datefmt=datefmt, stream=sys.stdout)
 
   # silence boto errors
-  #logging.getLogger('boto').setLevel(logging.CRITICAL)
+  logging.getLogger('boto').setLevel(logging.CRITICAL)
 
   # log to file as well
   if log_directory is not None:
@@ -101,6 +103,26 @@ def main(argv):
 
   for s in cf.getsections(r'^cloud_'):
     logger.info("Section: %s" % (s))
+
+  # cloud = CloudEC2(
+  #   'cern',
+  #   ec2_url='http://openstack.cern.ch:8773/services/Cloud',
+  #   ec2_access_key='56c5b483138e4da596a59e4eb9c4a307',
+  #   ec2_secret_key='d79c31466ab64bbfa9fafd1cca8ff93b'
+  # )
+
+  nodes = NodeList('nodeslist.pickle')
+  cloud = CloudDummy('dummy')
+
+  inst = cloud.instances()
+  if inst is not None:
+    for i in inst:
+      nodes.add(i)
+      print i
+  else:
+    print 'error'
+
+  nodes.save()
 
   # eq = EventQueue()
   # eq.push( EventQueueItem(function=test_function, parameters={ 'a':1, 'b':2, 'c':3 }, when=0, reschedule_after=123) )
