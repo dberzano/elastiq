@@ -208,9 +208,13 @@ def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=10):
   global robust_cmd_kill_timer
 
   shell = isinstance(params, basestring)
-  sp = None
 
   for n_attempts in range(1, max_attempts+1):
+
+    sp = None
+    if do_main_loop == False:
+      logging.debug("Not retrying command upon user request")
+      return None
 
     try:
       if n_attempts > 1:
