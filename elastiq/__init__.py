@@ -197,6 +197,10 @@ def exit_main_loop(signal, frame):
   global do_main_loop
   logging.info("Termination requested: we will exit gracefully soon")
   do_main_loop = False
+  try:
+    robust_cmd_kill_timer.cancel()
+  except Exception:
+    pass
 
 
 def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=10):
