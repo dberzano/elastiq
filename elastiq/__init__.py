@@ -18,6 +18,7 @@ import socket
 import random
 import base64
 import re
+import threading
 from ConfigParser import SafeConfigParser
 
 
@@ -90,6 +91,7 @@ ec2h = None
 ec2img = None
 user_data = None
 do_main_loop = True
+robust_cmd_kill_timer = None
 htcondor_ip_name_re = re.compile('^(([0-9]{1,3}-){3}[0-9]{1,3})\.')
 
 # Alias to the batch plugin module
@@ -195,14 +197,24 @@ def exit_main_loop(signal, frame):
   global do_main_loop
   logging.info("Termination requested: we will exit gracefully soon")
   do_main_loop = False
+  try:
+    robust_cmd_kill_timer.cancel()
+  except Exception:
+    pass
 
 
-def robust_cmd(params, max_attempts=5, suppress_stderr=True):
+def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=10):
+
+  global robust_cmd_kill_timer
 
   shell = isinstance(params, basestring)
-  sp = None
 
   for n_attempts in range(1, max_attempts+1):
+
+    sp = None
+    if do_main_loop == False:
+      logging.debug("Not retrying command upon user request")
+      return None
 
     try:
       if n_attempts > 1:
@@ -214,13 +226,22 @@ def robust_cmd(params, max_attempts=5, suppress_stderr=True):
           sp = subprocess.Popen(params, stdout=subprocess.PIPE, stderr=dev_null, shell=shell)
       else:
         sp = subprocess.Popen(params, stdout=subprocess.PIPE, shell=shell)
+
+      # Control the timeout
+      robust_cmd_kill_timer = threading.Timer(timeout_sec, robust_cmd_timeout_callback, [sp])
+      robust_cmd_kill_timer.start()
       sp.wait()
+      robust_cmd_kill_timer.cancel()
+      robust_cmd_kill_timer = None
+
     except OSError:
       logging.error("Command cannot be executed!")
       continue
 
-    if sp.returncode != 0:
+    if sp.returncode > 0:
       logging.debug("Command failed (returned %d)!" % sp.returncode)
+    elif sp.returncode < 0:
+      logging.debug("Command terminated with signal %d" % -sp.returncode)
     else:
       logging.info("Process exited OK");
       return {
@@ -236,6 +257,17 @@ def robust_cmd(params, max_attempts=5, suppress_stderr=True):
   else:
     logging.error("Giving up after %d attempts" % max_attempts)
     return None
+
+
+def robust_cmd_timeout_callback(subp):
+  if subp.poll() is None:
+    # not yet finished
+    try:
+      subp.kill()
+      logging.error('Command timeout reached: terminated')
+    except:
+      # might have become "not None" in the meanwhile
+      pass
 
 
 def ec2_scale_up(nvms, valid_hostnames=None):
@@ -888,8 +920,9 @@ def main(argv):
   else:
     logging.info("Logging to file %s and to console - log files are rotated" % lf)
 
-  # Register signal
-  signal.signal(signal.SIGINT, exit_main_loop)
+  # Register signals
+  signal.signal(signal.SIGINT, exit_main_loop) # 2
+  signal.signal(signal.SIGTERM, exit_main_loop) # 15
 
   # Load initial state
   load_owned_instances()
