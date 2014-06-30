@@ -203,7 +203,7 @@ def exit_main_loop(signal, frame):
     pass
 
 
-def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=10):
+def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=45):
 
   global robust_cmd_kill_timer
 
