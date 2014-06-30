@@ -230,7 +230,7 @@ def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=45):
       # Control the timeout
       robust_cmd_kill_timer = threading.Timer(timeout_sec, robust_cmd_timeout_callback, [sp])
       robust_cmd_kill_timer.start()
-      sp.wait()
+      cmdoutput = sp.communicate()[0]
       robust_cmd_kill_timer.cancel()
       robust_cmd_kill_timer = None
 
@@ -246,7 +246,7 @@ def robust_cmd(params, max_attempts=5, suppress_stderr=True, timeout_sec=45):
       logging.info("Process exited OK");
       return {
         'exitcode': 0,
-        'output': sp.communicate()[0]
+        'output': cmdoutput
       }
 
   if sp:
