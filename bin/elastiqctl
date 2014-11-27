@@ -278,7 +278,8 @@ case "$1" in
   ;;
 
   log)
-    status && tail -f "$elastiqLogFile"
+    status
+    [[ -e "$elastiqLogFile" ]] && tail -f "$elastiqLogFile"
     exit $?
   ;;
 
