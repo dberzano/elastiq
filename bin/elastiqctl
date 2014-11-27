@@ -66,6 +66,9 @@ export elastiqStateFile=${elastiqStateFile:-$elastiqDefaultStateFile}  # default
 export elastiqUser=${elastiqUser:-elastiq}  # defaults to 'elastiq'
 export elastiqCommand="python $elastiqRealBin --logdir=$elastiqLogFileDir --config=$elastiqConfFile --statefile=$elastiqStateFile"
 
+elastiqPythonPath="$(cd $PWD/../pylib 2> /dev/null && pwd)"
+[[ -d $elastiqPythonPath ]] && export PYTHONPATH="${elastiqPythonPath}:${PYTHONPATH}"
+
 # Permissions for logfile dir
 mkdir -p "$elastiqLogFileDir" 2> /dev/null
 chown "$elastiqUser" "$elastiqLogFileDir" 2> /dev/null
@@ -236,10 +239,11 @@ function start() {
 
 # Print configuration
 function print_conf() {
-  echo "Python  : $( which python ) ($( python -V 2>&1 ))"
-  echo "Elastiq : $elastiqRealBin"
-  echo "Log dir : $elastiqLogFileDir"
-  echo "Conf    : $elastiqConfFile"
+  echo "Python     : $( which python ) ($( python -V 2>&1 ))"
+  echo "PYTHONPATH : ${PYTHONPATH}"
+  echo "elastiq    : ${elastiqRealBin}"
+  echo "log dir    : ${elastiqLogFileDir}"
+  echo "conf       : ${elastiqConfFile}"
 }
 
 # Entry point
