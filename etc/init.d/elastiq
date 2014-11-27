@@ -1,19 +1,19 @@
 #!/bin/bash
 #
-# Author: Dario Berzano <dario.berzano@cern.ch> -- http://github.com/dberzano/elastiq
+# elastiq       Starts and stops the elastiq queue monitor
 #
-# elastiq:      Starts and stops the elastiq HTCondor queue monitor
+# chkconfig:    2345 99 09
+# description:  Control script for starting/stopping elastiq-real.py.
 #
-# chkconfig: - 99 09
-# description:  Control script for starting/stopping elastiq.py using \
-#               proper environment. Requires Python 2.6.
-#
+
 ### BEGIN INIT INFO
-# Provides: elastiq
+# Provides:          elastiq
 # Required-Start:
-# Default-Stop: 0 1 6
-# Short-Description: Starts and stops the elastiq HTCondor queue monitor
-# Description:  Control script for starting/stopping elastiq.py.
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Starts and stops the elastiq queue monitor
+# Description:       Control script for starting/stopping elastiq-real.py.
 ### END INIT INFO
 
 #
