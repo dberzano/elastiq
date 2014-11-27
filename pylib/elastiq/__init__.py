@@ -935,7 +935,7 @@ def main(argv):
     sys.exit(2)
 
   # Adjust log level
-  logging.getLogger("").setLevel( cf['elastiq']['log_level'] )
+  logging.getLogger("").setLevel( int(cf['elastiq']['log_level']) )
 
   # Load batch plugin
   batch_name = cf['elastiq']['batch_plugin']
