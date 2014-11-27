@@ -134,6 +134,8 @@ for package_format in $package_targets ; do
     --maintainer  "$author" \
     --description 'Up and downscale a cluster of VMs via EC2 based on their usage' \
     --url         'https://github.com/dberzano/elastiq' \
+    --after-install 'misc/fpm-scripts/after-install.sh' \
+    --before-remove 'misc/fpm-scripts/before-remove.sh' \
     -C            "$tmpdir_rsync" \
     $( for i in ${config_files[@]} ; do echo --config-files $i ; done ) \
     $( for i in ${exclude_fpm[@]} ; do echo --exclude $i ; done ) \
