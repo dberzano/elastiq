@@ -6,6 +6,8 @@
 # shutting down VMs via its EC2 interface.
 #
 
+__version__ = '0.9.7'
+
 import time
 import logging, logging.handlers
 import signal

@@ -41,28 +41,22 @@ Installation
 ------------
 
 
-### The RPM way
+### CentOS/RHEL
 
 Pick a release and an RPM from the
 [releases](https://github.com/dberzano/elastiq/releases) page, and
 install it with:
 
-    yum localinstall elastiq-<ver>.rpm
+    yum localinstall python-elastiq-<ver>.rpm
 
 
-### The Python way
+### Debian/Ubuntu
 
-To install system-wide, as root:
+Pick a release and a deb from the
+[releases](https://github.com/dberzano/elastiq/releases) page, and
+install it with:
 
-    python setup.py
-
-To install in another directory:
-
-    python setup.py --prefix=<instprefix>
-
-See installation options with:
-
-    python setup.py --help
+    gdebi python-elastiq-<ver>.deb
 
 
 Run in foreground
