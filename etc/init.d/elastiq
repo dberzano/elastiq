@@ -142,7 +142,7 @@ function stop() {
   local LastMsg
   while true ; do
     LastMsg=`query_status` || break
-    query_status 2> /dev/null  # for pid
+    query_status > /dev/null 2>&1  # in this env for exporting pid
     kill -$Signal $Pid 2> /dev/null
     sleep 1
     kill -0 $Pid 2> /dev/null && Signal=9
