@@ -364,6 +364,7 @@ def ec2_running_instances(hostnames=None):
     try:
       res = ec2h.get_all_reservations()  # boto 2.34.1
     except AttributeError:
+      logging.debug("Using old boto call for getting reservations")
       res = ec2h.get_all_instances()  # boto 2.2.2
   except Exception, e:
     logging.error("Can't get list of EC2 instances (maybe wrong credentials?)")
@@ -622,6 +623,7 @@ def check_owned_instance(st, instance_id):
     try:
       inst_list = ec2h.get_only_instances( [ instance_id ] )  # boto 2.34.1
     except AttributeError:
+      logging.debug("Using old boto workaround for getting one instance through reservations")
       res_list = ec2h.get_all_instances( [ instance_id ] )  # boto 2.2.2
       inst_list = res_list[0].instances
 
@@ -817,6 +819,7 @@ def check_vm_errors(st):
     try:
       all_instances = ec2h.get_only_instances()  # boto 2.34.1
     except AttributeError:
+      logging.debug("Using old boto workaround for getting all instances through reservations")
       all_instances = []
       all_res = ec2h.get_all_instances()
       for r in all_res:
