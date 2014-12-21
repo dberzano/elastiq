@@ -109,6 +109,7 @@ function echo_begin() (
 # echo on success at the end of an action
 function echo_success() (
   if function_exists 'log_success_msg' ; then
+    function_exists 'log_begin_msg' || echo -e -n '\r'
     log_success_msg "$1"
   else
     echo -e -n '\r'
@@ -120,6 +121,7 @@ function echo_success() (
 # echo on failure at the end of an action
 function echo_failure() (
   if function_exists 'log_failure_msg' ; then
+    function_exists 'log_begin_msg' || echo -e -n '\r'
     log_failure_msg "$1"
   else
     echo -e -n '\r'
