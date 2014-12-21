@@ -939,6 +939,9 @@ def main(argv):
   else:
     logging.info("Logging to file %s and to console - log files are rotated" % lf)
 
+  # Output version
+  logging.info("We are running elastiq v%s" % __version__)
+
   # Register signals
   signal.signal(signal.SIGINT, exit_main_loop) # 2
   signal.signal(signal.SIGTERM, exit_main_loop) # 15
