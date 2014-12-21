@@ -361,7 +361,11 @@ def ec2_running_instances(hostnames=None):
   object is a list of boto instances."""
 
   try:
-    res = ec2h.get_all_reservations()
+    try:
+      res = ec2h.get_all_reservations()  # boto 2.34.1
+    except AttributeError:
+      logging.debug("Using old boto call for getting reservations")
+      res = ec2h.get_all_instances()  # boto 2.2.2
   except Exception, e:
     logging.error("Can't get list of EC2 instances (maybe wrong credentials?)")
     return None
@@ -615,11 +619,16 @@ def check_owned_instance(st, instance_id):
 
   # Get information from EC2: we need the IP address
   try:
-    inst_list = ec2h.get_only_instances( [ instance_id ] )
-    if len(inst_list) == 1:
-      inst = inst_list[0]
-    else:
-      raise Exception
+
+    try:
+      inst_list = ec2h.get_only_instances( [ instance_id ] )  # boto 2.34.1
+    except AttributeError:
+      logging.debug("Using old boto workaround for getting one instance through reservations")
+      res_list = ec2h.get_all_instances( [ instance_id ] )  # boto 2.2.2
+      inst_list = res_list[0].instances
+
+    inst = inst_list[0]
+
   except Exception as e:
     logging.error("Instance %s not found" % instance_id)
     return
@@ -806,7 +815,15 @@ def check_vm_errors(st):
 
   # Get all instances in "error" state
   try:
-    all_instances = ec2h.get_only_instances()
+
+    try:
+      all_instances = ec2h.get_only_instances()  # boto 2.34.1
+    except AttributeError:
+      logging.debug("Using old boto workaround for getting all instances through reservations")
+      all_instances = []
+      all_res = ec2h.get_all_instances()
+      for r in all_res:
+        all_instances.extend( r.instances )  # boto 2.2.2
 
     # Clean up list from nonexisting instances
     new_owned_instances = []
