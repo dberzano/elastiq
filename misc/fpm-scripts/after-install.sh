@@ -9,6 +9,7 @@ if [[ $r != 9 && $r != 0 ]] ; then
   exit 1
 fi
 mkdir -p "${homedir}"
+chown root:${proguser} "${homedir}"
 chmod u=rwx,g=rwx,o=x "${homedir}"
 
 # register process 'elastiq'
