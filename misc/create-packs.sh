@@ -109,7 +109,7 @@ for package_format in $package_targets ; do
   mkdir -p "${tmpdir_rsync}/${python_libdir}"
   rsync -a "${package_src}/pylib/" "${tmpdir_rsync}/${python_libdir}" \
     $( for i in ${exclude_rsync[@]} ; do echo --exclude $i ; done ) || exit 1
-  mkdir -p "${tmpdir_rsync}/bin/"
+  mkdir -p "${tmpdir_rsync}/usr/bin/"
   rsync -a "${package_src}/bin/" "${tmpdir_rsync}/usr/bin" \
     $( for i in ${exclude_rsync[@]} ; do echo --exclude $i ; done ) || exit 1
   rsync -a "${package_src}/etc/" "${tmpdir_rsync}/etc" \
