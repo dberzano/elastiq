@@ -13,6 +13,15 @@ function pe() {
 package_src="$( cd `dirname "$0"`/.. ; pwd )"
 cd "$package_src"
 
+# compile with python before packaging? off by default
+python_compile=0
+
+# package name suffix (if any)
+package_name_suffix=''
+
+# avoid weird localized messages
+export LANG=C
+
 # parse cmdline args
 while [ $# -gt 0 ] ; do
   case "$1" in
@@ -32,6 +41,13 @@ while [ $# -gt 0 ] ; do
     ;;
     --python-version)
       python_version="$2"
+      shift
+    ;;
+    --compile)
+      python_compile=1
+    ;;
+    --suffix)
+      package_name_suffix="$2"
       shift
     ;;
     *)
@@ -88,7 +104,7 @@ for package_format in $package_targets ; do
     deb) python_libdir="/usr/lib/python${python_version}/dist-packages" ;;
     osxpkg) python_libdir="/Library/Python/${python_version}/site-packages" ;;
   esac
-  pe "format: $package_format (override: --targets \"fmt1 fmt2...\"), python libdir: $python_libdir" 
+  pe "format: $package_format (override: --targets \"fmt1 fmt2...\"), python libdir: $python_libdir, suffix: $package_name_suffix"
 
   mkdir -p "${tmpdir_rsync}/${python_libdir}"
   rsync -a "${package_src}/pylib/" "${tmpdir_rsync}/${python_libdir}" \
@@ -103,11 +119,13 @@ for package_format in $package_targets ; do
   config_files=$( cd "${tmpdir_rsync}" ; find etc -type f )
   echo $config_files
 
-  if [ "$verbose" == 1 ] ; then
-    pe 'python compiling'
-    python -m compileall "${tmpdir_rsync}/${python_libdir}" || exit 1
-  else
-    python -m compileall -q "${tmpdir_rsync}/${python_libdir}" || exit 1
+  if [ "$python_compile" == 1 ] ; then
+    if [ "$verbose" == 1 ] ; then
+      pe 'python compiling'
+      python -m compileall "${tmpdir_rsync}/${python_libdir}" || exit 1
+    else
+      python -m compileall -q "${tmpdir_rsync}/${python_libdir}" || exit 1
+    fi
   fi
 
   if [ "$verbose" == 1 ] ; then
@@ -116,6 +134,16 @@ for package_format in $package_targets ; do
   fi
 
   author='Dario Berzano <dario.berzano@cern.ch>'
+  if [ "$package_name_suffix" != '' ] ; then
+    case "$package_format" in
+      deb) iteration_suffix_sep='' ;;
+      rpm) iteration_suffix_sep='.' ;;
+      *) iteration_suffix_sep='.' ;;
+    esac
+    full_iteration="${iteration}${iteration_suffix_sep}${package_name_suffix}"
+  else
+    full_iteration="$iteration"
+  fi
   fpm \
     -s dir \
     -t $package_format \
@@ -126,7 +154,7 @@ for package_format in $package_targets ; do
     --depends     'screen' \
     --name        'python-elastiq' \
     --version     "$version" \
-    --iteration   "$iteration" \
+    --iteration   "$full_iteration" \
     --prefix      / \
     --package     "$package_dest" \
     --workdir     "$tmpdir_fpm" \
