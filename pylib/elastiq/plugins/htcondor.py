@@ -28,7 +28,7 @@ def poll_queue():
   Returns the number of inserted jobs on success, or None on failure.
   """
 
-  ret = robust_cmd(['condor_q', '-attributes', 'JobStatus', '-long'], max_attempts=5)
+  ret = robust_cmd(['condor_q', '-global', '-attributes', 'JobStatus', '-long'], max_attempts=5)
   if ret and 'output' in ret:
     return ret['output'].count("JobStatus = 1")
 
