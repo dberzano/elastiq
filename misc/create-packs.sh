@@ -160,6 +160,7 @@ for package_format in $package_targets ; do
     --workdir     "$tmpdir_fpm" \
     --vendor      "$author" \
     --maintainer  "$author" \
+    --rpm-os      linux \
     --description 'Up and downscale a cluster of VMs via EC2 based on their usage' \
     --url         'https://github.com/dberzano/elastiq' \
     --after-install 'misc/fpm-scripts/after-install.sh' \
