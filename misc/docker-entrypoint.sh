@@ -2,18 +2,22 @@
 
 # docker-entrypoint.sh -- by Dario Berzano <dario.berzano@cern.ch>
 #
-# Entrypoint for a SLC6 Docker container for installing and testing elastiq. Drops into a shell
-# when finished.
+# Entrypoint for a generic Debian- or RHEL-based Docker container for installing and testing
+# elastiq. Drops into a shell when finished installing
 
-rpmfile="$1"
+package="$1"
+ext=${package##*.}
 
-yum localinstall -y $rpmfile || exit 1
+if [[ $ext == deb ]] ; then
+  dpkg -i "$package" || exit 1
+elif [[ $ext == rpm ]] ; then
+  yum localinstall -y "$package" || exit 1
+else
+  echo "You must provide a .rpm or .deb package as argument."
+  exit 2
+fi
 
-echo '--> Installed successfully - some debug:'
-chkconfig | grep elastiq
-rpm -qa | grep elastiq
-
-echo '--> Running it'
+echo '--> Running elastiq'
 service elastiq start
 
 echo '--> Dropping into an interactive shell'
