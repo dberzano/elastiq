@@ -13,13 +13,8 @@ chown root:${proguser} "${homedir}"
 chmod u=rwx,g=rwx,o=x "${homedir}"
 
 # register process 'elastiq'
-if which chkconfig > /dev/null 2>&1 ; then
-  chkconfig --add elastiq
-  r=$?
-else
-  update-rc.d elastiq defaults
-  r=$?
-fi
+chkconfig --add elastiq 2> /dev/null || update-rc.d elastiq defaults
+r=$?
 [[ $r == 0 ]] || exit $r
 
 # configuration file perms
