@@ -5,12 +5,12 @@
 # Run an appropriate Docker container to debug elastiq on several platforms. The "misc" directory is
 # exposed in the container as readonly under /external by default. Runs an "entrypoint" script that
 # must be in the same directory of this one.
-
 # Configure variables here
 docker_image_slc6='dberzano/slc6-elastiqenv'
 docker_image_ubuntu1204='dberzano/ubuntu1204-elastiqenv'
 ext_mountpoint='/external'
 
+cd "$( dirname "$0" )"
 os=$1
 
 if [[ $os == slc6 ]] ; then
@@ -27,7 +27,6 @@ else
 fi
 
 set -e
-cd "$( dirname "$0" )"
 
 echo "--> Created package: ${package}"
 echo "--> Running image: ${docker_image}"
