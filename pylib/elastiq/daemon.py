@@ -47,9 +47,11 @@ class Daemon(object):
     stderr_handler.setFormatter(logctl_formatter)
     self.logctl.addHandler(stderr_handler)
 
+    # Note that syslog_handler might be None (for instance if running inside a container)
     syslog_handler = self._get_syslog_handler()
-    syslog_handler.setFormatter(logctl_formatter)
-    self.logctl.addHandler(syslog_handler)
+    if syslog_handler is not None:
+      syslog_handler.setFormatter(logctl_formatter)
+      self.logctl.addHandler(syslog_handler)
 
     self.logctl.setLevel(logging.DEBUG)
 
