@@ -43,7 +43,7 @@ class Daemon(object):
 
     logctl_formatter = logging.Formatter(name+': %(levelname)s: %(message)s')
 
-    stderr_handler = logging.StreamHandler(stream=sys.stderr)
+    stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(logctl_formatter)
     self.logctl.addHandler(stderr_handler)
 
