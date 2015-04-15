@@ -11,7 +11,7 @@ ext=${package##*.}
 if [[ $ext == deb ]] ; then
   dpkg -i "$package" || exit 1
 elif [[ $ext == rpm ]] ; then
-  yum localinstall -y "$package" || exit 1
+  rpm -ihv "$package" || exit 1
 else
   echo "You must provide a .rpm or .deb package as argument."
   exit 2
