@@ -183,6 +183,22 @@ class Daemon(object):
       # error
       return False
 
+  ## Run the daemon not as a daemon.
+  #
+  #  @return The daemon's exit code (int) as returned from its run() function
+  def start_foreground(self):
+
+    # Check for a pidfile to see if the daemon already runs
+    self._read_pid()
+
+    if self._is_running():
+      self.logctl.info('already running with PID %d' % self.pid);
+      return True
+
+    self._trap_exit_signals(self._exit_handler_real)
+    return self.run()
+
+
   ## Returns the status of the daemon. If daemon is running, its PID is printed.
   #
   #  @return True if daemon is running, False if not
