@@ -39,7 +39,7 @@ class Daemon(object):
     ## PID of daemon
     self.pid = None
     ## Custom logger for control messages
-    self.logctl = logging.getLogger('daemonctl')
+    self.logctl = logging.getLogger( self.name )
 
     logctl_formatter = logging.Formatter(name+': %(levelname)s: %(message)s')
 
