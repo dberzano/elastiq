@@ -3,23 +3,21 @@
 #
 # elastiq.default.example -- by Dario Berzano <dario.berzano@cern.ch>
 #
-# See: http://github.com/dberzano/virtual-analysis-facility
+# See: http://github.com/dberzano/elastiq
 #
-# Environment for the elastiq daemon. This sample configuration file uses a
-# configuration from CVMFS where available.
-#
-# Place this file as one of:
+# Environment script used by the elastiq daemon. This file is optional and it is not used by default
+# but if you have special needs you can save it to one of the following locations:
 #
 #   ~/.elastiq.default
 #   /etc/default/elastiq
 #   /etc/sysconfig/elastiq
 #
-# to "source" it before loading elastiq.
+# The first one found is loaded. This is a script "sourced" by the launch command.
 #
-# This example loads Python 2.7 from CVMFS before starting elastiq.
+# This specific example loads Python 2.7 from CVMFS before starting elastiq.
 #
 
-if [ -d '/cvmfs/sft.cern.ch' ] ; then
+if [[ -d '/cvmfs/sft.cern.ch' ]] ; then
 
   # GCC
   source /cvmfs/sft.cern.ch/lcg/external/gcc/4.7.2/x86_64-slc6-gcc47-opt/setup.sh ''  # empty arg needed!
