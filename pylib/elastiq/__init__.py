@@ -4,6 +4,8 @@ import logging, logging.handlers
 import os
 import re
 from ConfigParser import SafeConfigParser
+import subprocess
+import threading
 
 
 class Elastiq(Daemon):
@@ -184,12 +186,99 @@ class Elastiq(Daemon):
     return conf_file_ok
 
 
+  ## Execute the given shell command in the background, in a "robust" way. Command is repeated some
+  #  times if it did not succeed before giving up, and a timeout is foreseen. Output from stdout is
+  #  caught and returned.
+  #
+  #  @param params Command to run: might be a string (it will be passed unescaped to the shell) or
+  #                an array where the first element is the command, and every parameter follows
+  #  @param max_attempts Maximum number of tolerated errors before giving up
+  #  @param suppress_stderr Send stderr to /dev/null
+  #  @param timeout_sec Timeout the command after that many seconds
+  #
+  #  @return A dictionary where key `exitcode` is the exit code [0-255] and `output`, which might
+  #          not be present, contains a string with the output from stdout
+  def robust_cmd(self, params, max_attempts=5, suppress_stderr=True, timeout_sec=45):
+
+    shell = isinstance(params, basestring)
+
+    for n_attempts in range(1, max_attempts+1):
+
+      sp = None
+      if self._do_main_loop == False:
+        self.logctl.debug('Not retrying command upon user request')
+        return None
+
+      try:
+        if n_attempts > 1:
+          self.logctl.info('Waiting %ds before retrying...' % n_attempts)
+          time.sleep(n_attempts)
+
+        if suppress_stderr:
+          with open(os.devnull) as dev_null:
+            sp = subprocess.Popen(params, stdout=subprocess.PIPE, stderr=dev_null, shell=shell)
+        else:
+          sp = subprocess.Popen(params, stdout=subprocess.PIPE, shell=shell)
+
+        # Control the timeout
+        self._robust_cmd_kill_timer = threading.Timer(
+          timeout_sec, self._robust_cmd_timeout_callback, [sp])
+        self._robust_cmd_kill_timer.start()
+        cmdoutput = sp.communicate()[0]
+        self._robust_cmd_kill_timer.cancel()
+        self._robust_cmd_kill_timer = None
+
+      except OSError:
+        self.logctl.error('Command cannot be executed!')
+        continue
+
+      if sp.returncode > 0:
+        self.logctl.debug('Command failed (returned %d)!' % sp.returncode)
+      elif sp.returncode < 0:
+        self.logctl.debug('Command terminated with signal %d' % -sp.returncode)
+      else:
+        self.logctl.info('Process exited OK');
+        return {
+          'exitcode': 0,
+          'output': cmdoutput
+        }
+
+    if sp:
+      self.logctl.error('Giving up after %d attempts: last exit code was %d' %
+        (max_attempts, sp.returncode))
+      return {
+        'exitcode': sp.returncode
+      }
+    else:
+      self.logctl.error('Giving up after %d attempts' % max_attempts)
+      return None
+
+
+  ## Private callback invoked when a command run via robust_cmd reaches timeout.
+  #
+  #  @return Nothing is returned
+  def _robust_cmd_timeout_callback(self, subp):
+    if subp.poll() is None:
+      # not yet finished
+      try:
+        subp.kill()
+        self.logctl.error('Command timeout reached: terminated')
+      except:
+        # might have become "not None" in the meanwhile
+        pass
+
+
   ## Action to perform when some exit signal is received.
   #
   #  @return When returning True, exiting continues, when returning False exiting is cancelled
   def onexit(self):
-    self.logctl.info('Acklowledging exit request')
-    time.sleep(1)
+    self.logctl.info('Termination requested: we will exit gracefully soon')
+    self._do_main_loop = False
+    try:
+      self._robust_cmd_kill_timer.cancel()
+    except Exception:
+      pass
+
     return True
 
 
