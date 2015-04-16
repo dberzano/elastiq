@@ -6,6 +6,8 @@ import os
 
 class Elastiq(Daemon):
 
+  __version__ = '0.9.10'
+
   ## Constructor.
   #
   #  @param name      Daemon name

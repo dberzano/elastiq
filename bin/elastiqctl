@@ -9,7 +9,7 @@
 import sys, os.path
 from getopt import getopt, GetoptError
 #from piheat import PiHeat
-from elastiq.daemontest import Elastiq
+from elastiq import Elastiq
 
 daemondir = None
 pidfile = None
