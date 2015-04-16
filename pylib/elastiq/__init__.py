@@ -80,8 +80,8 @@ class Elastiq(Daemon):
   ec2h = None
   ec2img = None
   user_data = None
-  do_main_loop = True
-  robust_cmd_kill_timer = None
+  _do_main_loop = True
+  _robust_cmd_kill_timer = None
 
   # Alias to the batch plugin module
   BatchPlugin = None
@@ -163,7 +163,7 @@ class Elastiq(Daemon):
     # Try to open configuration file (read() can get a list of files as well)
     conf_file_ok = True
     if len(cf_parser.read(self._conffile)) == 0:
-      logging.warning("Cannot read configuration file %s" % self._conffile)
+      self.logctl.warning("Cannot read configuration file %s" % self._conffile)
       conf_file_ok = False
 
     for sec_name,sec_content in self.cf.iteritems():
@@ -177,9 +177,9 @@ class Elastiq(Daemon):
           except ValueError:
             pass
           self.cf[sec_name][key] = new_val
-          logging.info("Configuration: %s.%s = %s (from file)", sec_name, key, str(new_val))
+          self.logctl.info("Configuration: %s.%s = %s (from file)", sec_name, key, str(new_val))
         except Exception, e:
-          logging.info("Configuration: %s.%s = %s (default)", sec_name, key, str(val))
+          self.logctl.info("Configuration: %s.%s = %s (default)", sec_name, key, str(val))
 
     return conf_file_ok
 
