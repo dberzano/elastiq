@@ -173,7 +173,11 @@ class Daemon(object):
     if pid == 0:
       # child
       self._trap_exit_signals(self._exit_handler_real)
-      self.run()
+      try:
+        self.run()
+      except Exception as e:
+        self.logctl.exception('An exception occurred: traceback follows')
+        self.logctl.critical('Terminating abnormally, sorry :-(')
       return True  # never caught
     elif pid > 0:
       # main process
