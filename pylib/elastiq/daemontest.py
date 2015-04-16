@@ -3,6 +3,7 @@ import time
 import logging, logging.handlers
 import os
 
+
 class Elastiq(Daemon):
 
   ## Constructor.
@@ -17,7 +18,6 @@ class Elastiq(Daemon):
     self._conffile = conffile
     self._logdir = logdir
     self._statefile = statefile
-    self._setup_log_files()
 
 
   ## Setup use of logfiles, rotated and deleted periodically.
@@ -53,6 +53,8 @@ class Elastiq(Daemon):
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
   def run(self):
+
+    self._setup_log_files()
 
     while True:
       self.logctl.debug('Hello world (debug)')
