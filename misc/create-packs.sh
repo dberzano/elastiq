@@ -151,7 +151,6 @@ for package_format in $package_targets ; do
     --force \
     --depends     "python >= $python_version" \
     --depends     'python-boto' \
-    --depends     'screen' \
     --name        'python-elastiq' \
     --version     "$version" \
     --iteration   "$full_iteration" \
