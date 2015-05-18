@@ -273,7 +273,7 @@ def robust_cmd_timeout_callback(subp):
       pass
 
 
-def ec2_scale_up(nvms, valid_hostnames=None):
+def ec2_scale_up(nvms, valid_hostnames=None, nvms_allegedly_running=0):
   """Requests a certain number of VMs using the EC2 API. Returns a list of
   instance IDs of VMs launched successfully. Note: max_quota is honored by
   checking the *total* number of running VMs, and not only the ones recognized
@@ -302,10 +302,10 @@ def ec2_scale_up(nvms, valid_hostnames=None):
   n_running_vms = len(inst)  # number of *total* VMs running (also the ones *not* owned by HTCondor)
   if cf['quota']['max_vms'] >= 1:
     # We have a "soft" quota: respect it
-    n_vms_to_start = int(min(nvms, cf['quota']['max_vms']-n_running_vms))
+    n_vms_to_start = int(min(nvms, cf['quota']['max_vms']-nvms_allegedly_running-n_running_vms))
     if n_vms_to_start <= 0:
-      logging.warning("Over quota (%d VMs already running out of %d): cannot launch any more VMs" % \
-        (n_running_vms,cf['quota']['max_vms']))
+      logging.warning("Over quota (%d VMs already running plus %d VMs allegedly running out of %d): cannot launch any more VMs" % \
+        (n_running_vms,nvms_allegedly_running,cf['quota']['max_vms']))
     else:
       logging.warning("Quota enabled: requesting %d (out of desired %d) VMs" % (n_vms_to_start,nvms))
   else:
@@ -586,7 +586,7 @@ def check_vms(st):
         if n_vms > 0:
           logging.info("Below minimum quota (%d VMs): requesting %d more VMs" % \
             (min_vms,n_vms))
-          inst_ok = ec2_scale_up(n_vms, valid_hostnames=st['workers_status'].keys())
+          inst_ok = ec2_scale_up(n_vms, valid_hostnames=st['workers_status'].keys(), nvms_allegedly_running=st['vms_allegedly_running'])
           for inst in inst_ok:
             change_vms_allegedly_running(st, 1, inst)
             st['event_queue'].append({
@@ -687,7 +687,7 @@ def check_queue(st):
           # Above threshold time-wise and jobs-wise: do something
           logging.info("Waiting jobs: %d (above threshold of %d for more than %ds)" % \
             (n_waiting_jobs, cf['elastiq']['waiting_jobs_threshold'], cf['elastiq']['waiting_jobs_time_s']))
-          list_ok = ec2_scale_up( math.ceil(n_waiting_jobs / float(cf['elastiq']['n_jobs_per_vm'])), valid_hostnames=st['workers_status'].keys() )
+          list_ok = ec2_scale_up( math.ceil(n_waiting_jobs / float(cf['elastiq']['n_jobs_per_vm'])), valid_hostnames=st['workers_status'].keys(), nvms_allegedly_running=st['vms_allegedly_running'] )
           for inst in list_ok:
             change_vms_allegedly_running(st, 1, inst)
             st['event_queue'].append({
@@ -884,7 +884,7 @@ def check_vm_errors(st):
 
   # Attempt to run replacement VMs (no retry in this case!)
   if n_vms_to_restart > 0:
-    list_ok = ec2_scale_up( n_vms_to_restart, valid_hostnames=st['workers_status'].keys() )
+    list_ok = ec2_scale_up( n_vms_to_restart, valid_hostnames=st['workers_status'].keys(), nvms_allegedly_running=st['vms_allegedly_running'] )
     for inst in list_ok:
       change_vms_allegedly_running(st, 1, inst)
       st['event_queue'].append({
