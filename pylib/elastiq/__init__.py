@@ -291,7 +291,7 @@ class Elastiq(Daemon):
     found = False
     img = None
     try:
-      for img in ec2h.get_all_images():
+      for img in self.ec2h.get_all_images():
         if img.id == self.cf['ec2']['image_id']:
           found = True
           break
@@ -314,10 +314,10 @@ class Elastiq(Daemon):
   def ec2_running_instances(self, hostnames=None):
     try:
       try:
-        res = ec2h.get_all_reservations()  # boto 2.34.1
+        res = self.ec2h.get_all_reservations()  # boto 2.34.1
       except AttributeError:
         self.logctl.debug('Using old boto call for getting reservations')
-        res = ec2h.get_all_instances()  # boto 2.2.2
+        res = self.ec2h.get_all_instances()  # boto 2.2.2
     except Exception, e:
       self.logctl.error('Cannot get list of EC2 instances (maybe wrong credentials?)')
       return None
