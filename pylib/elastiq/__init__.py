@@ -431,9 +431,11 @@ class Elastiq(Daemon):
 
           success = True
         except Exception:
-          self.logctl.error('Cannot run instance via EC2: check your "hard" quota')
+          self.logctl.exception(
+            'Cannot run instance via EC2: check your "hard" quota (traceback follows)')
 
       else:
+        new_inst_id = 'i-12345678'  # mockup
         self.logctl.info('Not running VM: dry run active')
         success = True
 
