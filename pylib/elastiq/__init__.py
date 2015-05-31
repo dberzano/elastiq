@@ -1101,6 +1101,17 @@ class Elastiq(Daemon):
       ]
     }
 
+    # Schedule a sanity check for running instances as if they were just deployed
+    self.logctl.info('Scheduling sanity check for owned instances in %s seconds: %s' % \
+      (self.cf['elastiq']['estimated_vm_deploy_time_s'], self.owned_instances) )
+    time_sched = time.time() + self.cf['elastiq']['estimated_vm_deploy_time_s']
+    for inst in self.owned_instances:
+      self.st['event_queue'].append({
+        'action': 'check_owned_instance',
+        'when': time_sched,
+        'params': [ inst ]
+      })
+
     while self._do_main_loop:
       self.main_loop()
       self.logctl.debug('Sleeping %d seconds' % self.cf['elastiq']['sleep_s']);
