@@ -780,6 +780,71 @@ class Elastiq(Daemon):
     }
 
 
+  ## Gets the main IPv4 address used for outbound connections.
+  #
+  #  @return Our IPv4 address as seen from the outside as string or None on error
+  def get_main_ipv4(self):
+    try:
+      # No data is actually transmitted (UDP)
+      s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+      s.connect( ('8.8.8.8', 53) )
+      real_ip = s.getsockname()[0]
+      s.close()
+      return real_ip
+    except socket.error as e:
+      self.logctl.error('Cannot retrieve current IPv4 address: %s' % e)
+      return None
+
+
+  ## Gets the main IPv6 address used for outbound connections.
+  #
+  #  @return Our IPv6 address as seen from the outside as string or None on error
+  def get_main_ipv6(self):
+    try:
+      # No data is actually transmitted (UDP)
+      s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+      s.connect( ('2001:4860:4860::8888', 53) )
+      real_ip = s.getsockname()[0]
+      s.close()
+      return real_ip
+    except socket.error as e:
+      self.logctl.error('Cannot retrieve current IPv6 address: %s' % e)
+      return None
+
+
+  ## Overwrites the global list of running instances with the one provided by the file. If the file
+  #  cannot be read, the list will be emptied. This is not considered an error but a warning.
+  def load_owned_instances(self):
+    self.owned_instances = []
+    try:
+      with open(self.state_file, 'r') as f:
+        for line in f:
+          # Strip spaces and skip empty lines
+          inst = line.strip()
+          if inst != '':
+            self.owned_instances.append(inst)
+      self.logctl.info('Loaded list of owned instances: %s' % ','.join(self.owned_instances))
+    except IOError:
+      self.logctl.warning('Cannot read initial state from %s' % self.state_file)
+
+
+  ## Dumps the current list of owned instances to file, an instance ID per line.
+  #
+  #  @return True on success, False on error
+  def save_owned_instances(self):
+    try:
+      with open(self.state_file, 'w') as f:
+        for inst in self.owned_instances:
+          f.write(inst + '\n')
+      os.chmod(self.state_file, 0600)
+      self.logctl.debug('Saved list of owned instances: %s' % ','.join(self.owned_instances))
+    except (IOError, OSError) as e:
+      self.logctl.error('Cannot save list of owned instances %s: %s' % (self.state_file, e))
+      return False
+
+    return True
+
+
   ## Main loop
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
