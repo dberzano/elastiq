@@ -91,9 +91,6 @@ class Elastiq(Daemon):
   # List of owned instances (instance IDs)
   owned_instances = []
 
-  # Text file containing the list of managed instances (one instance ID per line)
-  state_file = None
-
 
   ## Constructor.
   #
@@ -928,7 +925,7 @@ class Elastiq(Daemon):
   def load_owned_instances(self):
     self.owned_instances = []
     try:
-      with open(self.state_file, 'r') as f:
+      with open(self._statefile, 'r') as f:
         for line in f:
           # Strip spaces and skip empty lines
           inst = line.strip()
@@ -936,7 +933,7 @@ class Elastiq(Daemon):
             self.owned_instances.append(inst)
       self.logctl.info('Loaded list of owned instances: %s' % ','.join(self.owned_instances))
     except IOError:
-      self.logctl.warning('Cannot read initial state from %s' % self.state_file)
+      self.logctl.warning('Cannot read initial state from %s' % self._statefile)
 
 
   ## Dumps the current list of owned instances to file, an instance ID per line.
@@ -944,13 +941,13 @@ class Elastiq(Daemon):
   #  @return True on success, False on error
   def save_owned_instances(self):
     try:
-      with open(self.state_file, 'w') as f:
+      with open(self._statefile, 'w') as f:
         for inst in self.owned_instances:
           f.write(inst + '\n')
-      os.chmod(self.state_file, 0600)
+      os.chmod(self._statefile, 0600)
       self.logctl.debug('Saved list of owned instances: %s' % ','.join(self.owned_instances))
     except (IOError, OSError) as e:
-      self.logctl.error('Cannot save list of owned instances %s: %s' % (self.state_file, e))
+      self.logctl.error('Cannot save list of owned instances %s: %s' % (self._statefile, e))
       return False
 
     return True
@@ -960,6 +957,7 @@ class Elastiq(Daemon):
   def main_loop(self):
     pass
 
+
   ## Daemon's main function.
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
@@ -967,10 +965,13 @@ class Elastiq(Daemon):
 
     self._setup_log_files()
     self.logctl.info('We are running elastiq v%s' % self.__version__)
+    self._load_conf()
+    self.load_owned_instances()
 
     while self._do_main_loop:
       self.main_loop()
       self.logctl.debug('Sleeping %d seconds' % self.cf['elastiq']['sleep_s']);
       time.sleep( self.cf['elastiq']['sleep_s'] )
 
+    self.logctl.info('Exiting gracefully!')
     return 0
