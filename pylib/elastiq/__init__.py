@@ -447,6 +447,112 @@ class Elastiq(Daemon):
     return inst_ok
 
 
+  ## Asks the Cloud to shutdown hosts corresponding to the given hostnames by using the EC2
+  # interface. Returns the list of instance IDs shut off successfully. Note: minimum number of VMs
+  # is honored by considering, as number of currently running VMs, the sole VMs known by the batch
+  # system. This behavior is different than what we do for the maximum quota, where we take into
+  # account all the running VMs to avoid cloud overflowing.
+  def ec2_scale_down(hosts, valid_hostnames=None):
+
+    if len(hosts) == 0:
+      self.logctl.warning('No hosts to shut down!')
+      return []
+
+    self.logctl.info('Requesting shutdown of %d VMs...' % len(hosts))
+
+    # List EC2 instances with the "valid" hostnames
+    inst = self.ec2_running_instances(valid_hostnames)
+    if inst is None or len(inst) == 0:
+      self.logctl.warning('No list of instances can be retrieved from EC2')
+      return []
+
+    # Resolve hostnames
+    ips = []
+    for h in hosts:
+      try:
+        ips.append( self.gethostbycondorname(h) )
+      except Exception:
+        self.logctl.warning('Cannot find IP for host to shut down %s: skipped' % h)
+
+    # Now filter out only instances to shutdown
+    inst_shutdown = []
+    for ip in ips:
+      found = False
+      for i in inst:
+        if i.private_ip_address == ip:
+          inst_shutdown.append(i)
+          found = True
+          break
+      if not found:
+        self.logctl.warning('Cannot find instance for IP to shut down %s: skipped' % ip)
+
+    # Print number of all valid instances
+    self.logctl.debug(
+      'Batch hosts: reqd to shutdown=%d | to shutdown matching EC2=%d | total matching EC2=%d' % \
+      (len(hosts), len(inst_shutdown), len(inst)))
+
+    # Shuffle the list
+    random.shuffle(inst_shutdown)
+
+    # Number of VMs to shutdown to honor the minimum quota of EC2 VMs matching batch hosts
+    max_vms_to_shutdown = len(inst)-self.cf['quota']['min_vms']  # inst --> known by batch and EC2
+
+    n_succ = 0
+    n_fail = 0
+    list_shutdown_ok = []
+
+    if max_vms_to_shutdown <= 0:
+      self.logctl.info('Not shutting down any VM to honor the minimum quota of %d' % \
+        self.cf['quota']['min_vms'])
+
+    else:
+
+      self.logctl.info('Shutting down maximum %d VMs ' \
+        '(total managed=%d, requested=%d, requested and managed=%d) to honor min quota of %d' % \
+        (max_vms_to_shutdown, len(inst), len(hosts), \
+          len(inst_shutdown), self.cf['quota']['min_vms']))
+
+      for i in inst_shutdown:
+
+        ipv4 = i.private_ip_address
+        success = False
+        if int(self.cf['debug']['dry_run_shutdown_vms']) == 0:
+          try:
+            i.terminate()
+            list_shutdown_ok.append(i.id)
+            self.owned_instances.remove(i.id)
+            self.logctl.debug('Shutdown via EC2 of %s succeeded' % ipv4)
+            success = True
+          except Exception, e:
+            self.logctl.error('Shutdown via EC2 failed for %s' % ipv4)
+        else:
+          # Dry run
+          self.logctl.debug('Not shutting down %s via EC2: dry run' % ipv4);
+          success = True
+
+        # Messages
+        if success:
+          n_succ += 1
+          self.logctl.info(
+            'VM shutdown requested OK. Status: total=%d | success=%d | failed: %d | ID: %s' % \
+            (n_succ+n_fail, n_succ, n_fail, i.id))
+        else:
+          n_fail += 1
+          self.logctl.info(
+            'VM shutdown request fail. Status: total=%d | success=%d | failed: %d' % \
+            (n_succ+n_fail, n_succ, n_fail))
+
+        # Check min quota
+        if n_succ == max_vms_to_shutdown:
+          break
+
+      # Save to file the list of owned instances
+      if n_succ > 0:
+        self.save_owned_instances()
+
+    return list_shutdown_ok
+
+
   ## Main loop
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
