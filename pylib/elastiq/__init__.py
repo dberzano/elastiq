@@ -610,10 +610,10 @@ class Elastiq(Daemon):
           if n_vms > 0:
             self.logctl.info('Below minimum quota (%d VMs): requesting %d more VMs' % \
               (min_vms, n_vms))
-            inst_ok = self.ec2_scale_up( n_vms, valid_hostnames=st['workers_status'].keys() )
+            inst_ok = self.ec2_scale_up( n_vms, valid_hostnames=self.st['workers_status'].keys() )
             for inst in inst_ok:
               self.change_vms_allegedly_running(1, inst)
-              st['event_queue'].append({
+              self.st['event_queue'].append({
                 'action': 'check_owned_instance',
                 'when': time.time() + self.cf['elastiq']['estimated_vm_deploy_time_s'],
                 'params': [ inst ]
@@ -731,7 +731,7 @@ class Elastiq(Daemon):
       n_waiting_jobs -= corr
 
       if n_waiting_jobs > self.cf['elastiq']['waiting_jobs_threshold']:
-        if st['first_seen_above_threshold'] != -1:
+        if self.st['first_seen_above_threshold'] != -1:
 
           if (check_time-self.st['first_seen_above_threshold']) > \
             self.cf['elastiq']['waiting_jobs_time_s']:
@@ -748,7 +748,7 @@ class Elastiq(Daemon):
               self.change_vms_allegedly_running(1, inst)
               self.st['event_queue'].append({
                 'action': 'check_owned_instance',
-                'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+                'when': time.time() + self.cf['elastiq']['estimated_vm_deploy_time_s'],
                 'params': [ inst ]
               })
             self.st['first_seen_above_threshold'] = -1
@@ -776,7 +776,7 @@ class Elastiq(Daemon):
 
     return {
       'action': 'check_queue',
-      'when': time.time() + cf['elastiq']['check_queue_every_s']
+      'when': time.time() + self.cf['elastiq']['check_queue_every_s']
     }
 
 
