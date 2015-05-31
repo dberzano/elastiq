@@ -780,6 +780,117 @@ class Elastiq(Daemon):
     }
 
 
+  ## Check virtual machines launched by us in error state, and relaunch them. Also clean up list of
+  #  owned instances by removing unfound ones.
+  def check_vm_errors(self):
+
+    owned_instances_changed = False
+    self.logctl.info('Check VMs in error state...')
+
+    # Get all instances in "error" state
+    try:
+
+      try:
+        all_instances = self.ec2h.get_only_instances()  # boto 2.34.1
+      except AttributeError:
+        self.logctl.debug('Using old boto workaround for getting all instances through reservations')
+        all_instances = []
+        all_res = self.ec2h.get_all_instances()
+        for r in all_res:
+          all_instances.extend( r.instances )  # boto 2.2.2
+
+      # Clean up list from nonexisting instances
+      new_owned_instances = []
+      for o in self.owned_instances:
+        keep = False
+        for a in all_instances:
+          if o == a.id:
+            keep = True
+            break
+        if keep:
+          new_owned_instances.append(o)
+        else:
+          self.logctl.debug('Unknown owned instance removed: %s' % o)
+          owned_instances_changed = True
+      if owned_instances_changed:
+        self.owned_instances = new_owned_instances
+
+      # Only the ones in error state (generator)
+      error_instances = \
+        ( x for x in all_instances if x.state == 'error' and x.id in self.owned_instances )
+
+    except Exception as e:
+      self.logctl.error('Cannot get list of owned EC2 instances in error: %s' % e)
+      error_instances = []
+
+    # Print them
+    n_vms_to_restart = 0
+    for ei in error_instances:
+
+      # Operations to do if a VM is in error:
+      # 1. Terminate it
+      # 2. Remove it from the managed list
+      # 3. Decrement VMs allegedly running
+      # 3. Cancel event restoring VMs allegedly running
+      # 4. Run new instances (ignoring errors)
+      # 5. Increase VMs allegedly running
+
+      # Terminate VM in error
+      try:
+        ei.terminate()
+        self.logctl.debug('Shutdown via EC2 of %s in error state succeeded' % ei.id)
+      except Exception as e:
+        self.logctl.error('Shutdown via EC2 failed for %s in error state: %s' % (ei.id, e))
+        continue
+
+      # Remove from "owned" list
+      self.owned_instances.remove(ei.id)
+      owned_instances_changed = True
+
+      # Change VMs allegedly running
+      self.change_vms_allegedly_running(-1)
+
+      # Remove event for the current instance
+      self.st['event_queue'][:] = \
+        [ x for x in self.st['event_queue'] \
+        if x['action'] != 'change_vms_allegedly_running' or x['params'][1] != ei.id ]
+
+      # Restart that number of VMs
+      n_vms_to_restart = n_vms_to_restart + 1
+
+    # Attempt to run replacement VMs (no retry in this case!)
+    if n_vms_to_restart > 0:
+      list_ok = self.ec2_scale_up( n_vms_to_restart, valid_hostnames=self.st['workers_status'].keys() )
+      for inst in list_ok:
+        self.change_vms_allegedly_running(1, inst)
+        self.st['event_queue'].append({
+          'action': 'check_owned_instance',
+          'when': time.time() + self.cf['elastiq']['estimated_vm_deploy_time_s'],
+          'params': [ inst ]
+        })
+      if len(list_ok) == n_vms_to_restart:
+        self.logctl.debug('Successfully requested all the new replacement VMs: %s' % \
+          ','.join(list_ok))
+      else:
+        self.logctl.debug('Cannot request all the replacement VMs: only %d/%d succeeded (%s)' % \
+          (len(list_ok), n_vms_to_restart, ','.join(list_ok)))
+
+    # Save to disk
+    if owned_instances_changed:
+      self.save_owned_instances()
+
+    # Re-run this command in X seconds
+    return {
+      'action': 'check_vm_errors',
+      'when': time.time() + self.cf['elastiq']['check_vms_in_error_every_s']
+    }
+
+
+
+
+
+
+
   ## Gets the main IPv4 address used for outbound connections.
   #
   #  @return Our IPv4 address as seen from the outside as string or None on error
