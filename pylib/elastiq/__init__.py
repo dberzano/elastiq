@@ -693,6 +693,74 @@ class Elastiq(Daemon):
     return None
 
 
+
+  ## Checks batch queue and take actions of starting VMs when appropriate.
+  #
+  #  @return Event dict rescheduling self
+  def check_queue(self):
+
+    self.logctl.info('Checking queue...')
+    check_time = time.time()
+    n_waiting_jobs = BatchPlugin.poll_queue()
+
+    if n_waiting_jobs is not None:
+
+      # Correction factor
+      corr = self.st['vms_allegedly_running'] * self.cf['elastiq']['n_jobs_per_vm']
+      self.logctl.info('Jobs: waiting=%d | allegedly running=%d | considering=%d' % \
+        (n_waiting_jobs, corr, n_waiting_jobs-corr))
+      n_waiting_jobs -= corr
+
+      if n_waiting_jobs > self.cf['elastiq']['waiting_jobs_threshold']:
+        if st['first_seen_above_threshold'] != -1:
+
+          if (check_time-self.st['first_seen_above_threshold']) > \
+            self.cf['elastiq']['waiting_jobs_time_s']:
+            # Above threshold time-wise and jobs-wise: do something
+
+            self.logctl.info('Waiting jobs: %d (above threshold of %d for more than %ds)' % \
+              (n_waiting_jobs, self.cf['elastiq']['waiting_jobs_threshold'],
+              self.cf['elastiq']['waiting_jobs_time_s']))
+
+            list_ok = self.ec2_scale_up(
+              math.ceil(n_waiting_jobs / float(self.cf['elastiq']['n_jobs_per_vm'])) )
+
+            for inst in list_ok:
+              self.change_vms_allegedly_running(1, inst)
+              self.st['event_queue'].append({
+                'action': 'check_owned_instance',
+                'when': time.time() + cf['elastiq']['estimated_vm_deploy_time_s'],
+                'params': [ inst ]
+              })
+            self.st['first_seen_above_threshold'] = -1
+
+          else:
+            # Above threshold but not for enough time
+            self.logctl.info('Waiting jobs: %d (still above threshold of %d for less than %ds)' % \
+              (n_waiting_jobs, self.cf['elastiq']['waiting_jobs_threshold'],
+              self.cf['elastiq']['waiting_jobs_time_s']) )
+
+        else:
+          # First time seen above threshold
+          self.logctl.info('Waiting jobs: %d (first time above threshold of %d)' % \
+            (n_waiting_jobs, self.cf['elastiq']['waiting_jobs_threshold']))
+          self.st['first_seen_above_threshold'] = check_time
+
+      else:
+        # Not above threshold: reset
+        self.logctl.info('Waiting jobs: %d (below threshold of %d)' % \
+          (n_waiting_jobs, self.cf['elastiq']['waiting_jobs_threshold']))
+        self.st['first_seen_above_threshold'] = -1
+
+    else:
+      self.logctl.error('Cannot get the number of waiting jobs this time, sorry')
+
+    return {
+      'action': 'check_queue',
+      'when': time.time() + cf['elastiq']['check_queue_every_s']
+    }
+
+
   ## Main loop
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
