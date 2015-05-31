@@ -282,6 +282,171 @@ class Elastiq(Daemon):
     return True
 
 
+  ## Returns a boto Image object containing the image corresponding to a certain image AMI ID.
+  #
+  #  @param image_id The image unique identifier
+  #
+  #  @return An image object, or None if not found
+  def ec2_image(self, image_id):
+    found = False
+    img = None
+    try:
+      for img in ec2h.get_all_images():
+        if img.id == cf['ec2']['image_id']:
+          found = True
+          break
+    except Exception:
+      self.logctl.error('Cannot make an EC2 connection to retrieve image info!')
+
+    if not found:
+      return None
+
+    return img
+
+
+  ## Returns all running instances visible with current EC2 credentials, or None on errors. If
+  #  hostnames is specified, it returns the sole running instances whose IP address matches the
+  #  resolved input hostnames. Returned object is a list of boto instances.
+  #
+  #  @param hostnames An optional list of valid hostnames to filter EC2 results
+  #
+  #  @return List of instances, or None on error
+  def ec2_running_instances(self, hostnames=None):
+    try:
+      try:
+        res = ec2h.get_all_reservations()  # boto 2.34.1
+      except AttributeError:
+        self.logctl.debug('Using old boto call for getting reservations')
+        res = ec2h.get_all_instances()  # boto 2.2.2
+    except Exception, e:
+      self.logctl.error('Cannot get list of EC2 instances (maybe wrong credentials?)')
+      return None
+
+    # Resolve IPs
+    if hostnames is not None:
+      ips = []
+      for h in hostnames:
+        try:
+          ipv4 = self.gethostbycondorname(h)
+          ips.append(ipv4)
+        except Exception:
+          # Don't add host if IP address could not be found
+          self.logctl.warning('Ignoring hostname %s: cannot resolve IPv4 address' % h)
+
+    if hostnames is not None:
+      self.logctl.debug('Input hostnames: %s' % (','.join(hostnames)))
+      self.logctl.debug('Input IPs: %s' % (','.join(ips)))
+    else:
+      self.logctl.debug('No input hostnames given')
+
+    # Add only running instances
+    inst = []
+    for r in res:
+      for i in r.instances:
+        if i.state == 'running':
+          if hostnames is None:
+            # Append all
+            inst.append(i)
+          else:
+            found = False
+            for ipv4 in ips:
+              if i.private_ip_address == ipv4:
+                inst.append(i)
+                self.logctl.debug('Found IP %s corresponding to instance' % ipv4)
+                found = True
+                break
+            if not found:
+              self.logctl.warning('Cannot find instance %s in the list of known IPs' % \
+                i.private_ip_address)
+
+    return inst
+
+
+  ## Requests a certain number of VMs using the EC2 API. Returns a list of instance IDs of VMs
+  #  launched successfully. Note: max_quota is honored by checking the *total* number of running
+  #  VMs, and not only the ones recognized by HTCondor. This is done on purpose to avoid overflowing
+  #  the cloud (possibly a commercial one) with misconfigured VMs that don't join the HTCondor
+  #  cluster.
+  #
+  #  @param nvms Number of new VMs to request
+  #
+  #  @return List of instances successfully started
+  def ec2_scale_up(self, nvms):
+
+    # Try to get image if necessary
+    if self.ec2img is None:
+      self.ec2img = self.ec2_image(cf['ec2']['image_id'])
+      if self.ec2img is None:
+        self.logctl.error('Cannot scale up: image id %s not found' % cf['ec2']['image_id'])
+        return []
+
+    n_succ = 0
+    n_fail = 0
+    self.logctl.info('We need %d more VMs...' % nvms)
+
+    inst = self.ec2_running_instances()
+    if inst is None:
+      self.logctl.error('No list of instances can be retrieved from EC2')
+      return []
+
+    n_running_vms = len(inst)  # number of *total* VMs running (also non-HTCondor ones)
+    if cf['quota']['max_vms'] >= 1:
+      # We have a "soft" quota: respect it
+      n_vms_to_start = int( min(nvms, cf['quota']['max_vms']-n_running_vms) )
+      if n_vms_to_start <= 0:
+        self.logctl.warning(
+          'Over quota (%d VMs already running out of %d): cannot launch any more VMs' % \
+          (n_running_vms, cf['quota']['max_vms']) )
+      else:
+        self.logctl.warning('Quota enabled: requesting %d (out of desired %d) VMs' % \
+          (n_vms_to_start, nvms) )
+    else:
+      n_vms_to_start = int(nvms)
+
+    # Launch VMs
+    inst_ok = []
+    for i in range(1, n_vms_to_start+1):
+
+      success = False
+      if int(cf['debug']['dry_run_boot_vms']) == 0:
+        try:
+
+          # Returns the reservation
+          reserv = self.ec2img.run(
+            key_name=cf['ec2']['key_name'],
+            user_data=user_data,
+            instance_type=cf['ec2']['flavour']
+          )
+
+          # Get the single instance ID from the reservation
+          new_inst_id = reserv.instances[0].id
+          self.owned_instances.append( new_inst_id )
+          inst_ok.append( new_inst_id )
+
+          success = True
+        except Exception:
+          self.logctl.error('Cannot run instance via EC2: check your "hard" quota')
+
+      else:
+        self.logctl.info('Not running VM: dry run active')
+        success = True
+
+      if success:
+        n_succ+=1
+        self.logctl.info('VM launched OK. Requested: %d/%d | Success: %d | Failed: %d | ID: %s' % \
+          (i, n_vms_to_start, n_succ, n_fail, new_inst_id))
+      else:
+        n_fail+=1
+        self.logctl.info('VM launch fail. Requested: %d/%d | Success: %d | Failed: %d' % \
+          (i, n_vms_to_start, n_succ, n_fail))
+
+    # Dump owned instances to file (if something changed)
+    if n_succ > 0:
+      self.save_owned_instances()
+
+    return inst_ok
+
+
   ## Main loop
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
@@ -294,6 +459,7 @@ class Elastiq(Daemon):
       self.logctl.info('Hello world (info)')
       self.logctl.warning('Hello world (warning)')
       self.logctl.error('Hello world (error)')
+
       time.sleep(1)
 
     return 0
