@@ -6,6 +6,7 @@ import re
 from ConfigParser import SafeConfigParser
 import subprocess
 import threading
+import boto
 
 
 class Elastiq(Daemon):
@@ -976,6 +977,21 @@ class Elastiq(Daemon):
     self.BatchPlugin.init( self )
 
 
+  ## Initialize the EC2 connection and image.
+  def _init_ec2(self):
+    self.ec2h = boto.connect_ec2_endpoint(
+      self.cf['ec2']['api_url'],
+      aws_access_key_id=self.cf['ec2']['aws_access_key_id'],
+      aws_secret_access_key=self.cf['ec2']['aws_secret_access_key'],
+      api_version=self.cf['ec2']['api_version'])
+
+    self.ec2img = self.ec2_image( self.cf['ec2']['image_id'] )
+    if self.ec2img is None:
+      self.logctl.error('Cannot find EC2 image "%s"', self.cf['ec2']['image_id'])
+    else:
+      self.logctl.debug('EC2 image "%s" found' % self.cf['ec2']['image_id'])
+
+
   ## Daemon's main function.
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
@@ -986,6 +1002,7 @@ class Elastiq(Daemon):
     self._load_conf()
     self.load_owned_instances()
     self._load_batch_plugin()
+    self._init_ec2()
 
     while self._do_main_loop:
       self.main_loop()
