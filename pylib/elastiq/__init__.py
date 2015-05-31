@@ -956,19 +956,21 @@ class Elastiq(Daemon):
     return True
 
 
-  ## Main loop
+  ## Daemon's main loop.
+  def main_loop(self):
+    pass
+
+  ## Daemon's main function.
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
   def run(self):
 
     self._setup_log_files()
+    self.logctl.info('We are running elastiq v%s' % self.__version__)
 
-    while True:
-      self.logctl.debug('Hello world (debug)')
-      self.logctl.info('Hello world (info)')
-      self.logctl.warning('Hello world (warning)')
-      self.logctl.error('Hello world (error)')
-
-      time.sleep(1)
+    while self._do_main_loop:
+      self.main_loop()
+      self.logctl.debug('Sleeping %d seconds' % self.cf['elastiq']['sleep_s']);
+      time.sleep( self.cf['elastiq']['sleep_s'] )
 
     return 0
