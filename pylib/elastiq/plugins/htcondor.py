@@ -6,7 +6,6 @@
 
 import logging
 import time
-from elastiq import robust_cmd, gethostbycondorname
 import xml.etree.ElementTree as ET
 try:
   # Python 2.6
@@ -16,31 +15,37 @@ except ImportError:
   from xml.parsers.expat import ExpatError as XmlParseError
 
 
-def init(cf):
-  """Initializes the plugin by getting a dictionary corresponding to our
-  configuration. Beware: it might be None."""
-
-  logging.debug("HTCondor plugin initialized")
+## Instance of class Elastiq
+elastiq_instance = None
 
 
-def poll_queue(): 
-  """Polls HTCondor for the number of inserted (i.e., "waiting") jobs.
-  Returns the number of inserted jobs on success, or None on failure.
-  """
+##  Initializes the plugin by getting a dictionary corresponding to our configuration. Beware: it
+#   might be None.
+#
+#   @param elastiq_inst Instance of main Elastiq class
+def init(elastiq_inst):
+  global elastiq_instance
+  elastiq_instance = elastiq_inst
+  elastiq_instance.logctl.debug("HTCondor plugin initialized")
 
-  ret = robust_cmd(['condor_q', '-global', '-attributes', 'JobStatus', '-long'], max_attempts=5)
+
+## Polls HTCondor for the number of inserted (i.e., "waiting") jobs.
+#
+#  @return The number of inserted jobs on success, or None on failure.
+def poll_queue():
+  ret = elastiq_instance.robust_cmd(
+    ['condor_q', '-global', '-attributes', 'JobStatus', '-long'], max_attempts=5)
   if ret and 'output' in ret:
-    return ret['output'].count("JobStatus = 1")
-
+    return ret['output'].count('JobStatus = 1')
   return None
 
 
+## Polls HTCondor for the list of workers with the number of running jobs per worker.
+#
+#  @return An array of hosts, each one of them with its number of running jobs, or None on error
 def poll_status(current_workers_status, valid_ipv4s=None):
-  """Polls HTCondor for the list of workers with the number of running jobs
-  per worker. Returns an array of hosts, each one of them has a parameter that
-  indicates the number of running jobs."""
-
-  ret = robust_cmd(['condor_status', '-xml', '-attributes', 'Activity,Machine'], max_attempts=2)
+  ret = elastiq_instance.robust_cmd(
+    ['condor_status', '-xml', '-attributes', 'Activity,Machine'], max_attempts=2)
   if ret is None or 'output' not in ret:
     return None
 
@@ -91,17 +96,17 @@ def poll_status(current_workers_status, valid_ipv4s=None):
       # Simpler variables
       host = params['Machine']
       activity = params['Activity']
-      logging.debug("Found: %s is %s" % (host,activity))
+      elastiq_instance.logctl.debug('Found: %s is %s' % (host,activity))
 
       # If we have a list of valid IPv4 addresses, check if it matches.
       if valid_ipv4s is not None:
         try:
-          ip = gethostbycondorname(host)
+          ip = elastiq_instance.gethostbycondorname(host)
           if ip not in valid_ipv4s:
-            logging.debug("Poll status: %s ignored (no matching VM)" % host)
+            elastiq_instance.logctl.debug('Poll status: %s ignored (no matching VM)' % host)
             continue
         except Exception:
-          logging.debug("Poll status: %s ignored (cannot resolve IP)" % host)
+          elastiq_instance.logctl.debug('Poll status: %s ignored (cannot resolve IP)' % host)
           continue
 
       # Here we have host and activity. Activity might be, for instance,
@@ -122,7 +127,7 @@ def poll_status(current_workers_status, valid_ipv4s=None):
           workers_status[host]['jobs'] = 1
 
   except XmlParseError as e:
-    logging.error("Invalid XML: %s" % e)
+    elastiq_instance.logctl.error('Invalid XML: %s' % e)
     return None
 
   # At this point we have the previous state and the current state saved

@@ -91,7 +91,7 @@ if [ "$iteration" == '' ] ; then
   iteration=$(( iteration + 1 ))
 fi
 echo $iteration > misc/dist/latest_iteration
-version="$( cd pylib ; python -c 'import elastiq ; print elastiq.__version__' )"
+version="$( cd pylib ; python -c 'import elastiq ; print elastiq.Elastiq.__version__' )"
 pe "Python: $python_version (override with --python-version <v>)"
 pe "version: $version, iteration: $iteration (override with --iteration <n>)"
 
@@ -151,7 +151,6 @@ for package_format in $package_targets ; do
     --force \
     --depends     "python >= $python_version" \
     --depends     'python-boto' \
-    --depends     'screen' \
     --name        'python-elastiq' \
     --version     "$version" \
     --iteration   "$full_iteration" \

@@ -20,14 +20,33 @@
 # Init
 #
 
-# Source function library.
+# Source function library
 [[ -e /lib/lsb/init-functions ]] && . /lib/lsb/init-functions
 
+# Get this script's name
 Prog=`readlink -e "$0"`
 cd `dirname "$Prog"`
 Prog=`basename "$0"`
 
-# Find first existing file in the given list. Files support spaces in the name.
+# Lock file name
+LockFile='/var/lock/subsys/elastiq'
+
+# Log files directory
+elastiqLogDir='/var/log/elastiq'
+
+# Log file
+elastiqLogFile="${elastiqLogDir}/elastiq.log"
+
+# State file directory
+elastiqStateFile='/var/lib/elastiq/state'
+
+# PID file
+elastiqPidFile='/var/run/elastiq.pid'
+
+# User
+elastiqUser='elastiq'
+
+# Find first existing file in the given list. Files support spaces in the name
 function FindFirst() (
   local F
   for F in "$@" ; do
@@ -39,51 +58,21 @@ function FindFirst() (
   return 1
 )
 
-Lock='/var/lock/subsys/elastiq'
+# # Permissions for logfile dir
+# mkdir -p "$elastiqLogFileDir" 2> /dev/null
+# chown "$elastiqUser" "$elastiqLogFileDir" 2> /dev/null
+# chmod 0770 "$elastiqLogFileDir" 2> /dev/null  # might contain sensitive data
+# touch "$elastiqLogFileDir"/.test 2> /dev/null
+# if [[ $? != 0 ]] ; then
+#   echo "Cannot access log directory $elastiqLogFileDir" >&2
+#   exit 3
+# fi
+# rm -f "$elastiqLogFileDir"/.test
 
-# Default control variables
-if [[ `whoami` == 'root' ]] ; then
-  export elastiqDefaultSysconfig=$( FindFirst '/etc/default/elastiq' '/etc/sysconfig/elastiq' )
-  export elastiqDefaultLogFileDir='/var/log/elastiq'
-  export elastiqDefaultConfFile='/etc/elastiq.conf'
-  export elastiqDefaultStateFile='/var/lib/elastiq/state'
-else
-  export elastiqDefaultSysconfig="$HOME/.elastiq/startup.sh"
-  export elastiqDefaultLogFileDir="$HOME/.elastiq/log"
-  export elastiqDefaultConfFile="$HOME/.elastiq/elastiq.conf"
-  export elastiqDefaultStateFile="$HOME/.elastiq/state"
-fi
-
-# Load environment (ignore error if not found)
-[[ "$elastiqDefaultSysconfig" != '' ]] && source "$elastiqDefaultSysconfig" 2> /dev/null
-
-export elastiqScreenName='__|elastiq|__'
-export elastiqRealBin=$( FindFirst "$(which elastiq-real.py 2> /dev/null)" "$PWD/elastiq-real.py" '/usr/bin/elastiq-real.py' )
-export elastiqLogFileDir=${elastiqLogFileDir:-$elastiqDefaultLogFileDir}  # defaults to syswide path
-export elastiqLogFile="${elastiqLogFileDir}/elastiq.log"
-export elastiqConfFile=${elastiqConfFile:-$elastiqDefaultConfFile}  # defaults to syswide file
-export elastiqStateFile=${elastiqStateFile:-$elastiqDefaultStateFile}  # defaults to syswide path
-export elastiqUser=${elastiqUser:-elastiq}  # defaults to 'elastiq'
-export elastiqCommand="python $elastiqRealBin --logdir=$elastiqLogFileDir --config=$elastiqConfFile --statefile=$elastiqStateFile"
-
-elastiqPythonPath="$(cd $PWD/../pylib 2> /dev/null && pwd)"
-[[ -d $elastiqPythonPath ]] && export PYTHONPATH="${elastiqPythonPath}:${PYTHONPATH}"
-
-# Permissions for logfile dir
-mkdir -p "$elastiqLogFileDir" 2> /dev/null
-chown "$elastiqUser" "$elastiqLogFileDir" 2> /dev/null
-chmod 0770 "$elastiqLogFileDir" 2> /dev/null  # might contain sensitive data
-touch "$elastiqLogFileDir"/.test 2> /dev/null
-if [[ $? != 0 ]] ; then
-  echo "Cannot access log directory $elastiqLogFileDir" >&2
-  exit 3
-fi
-rm -f "$elastiqLogFileDir"/.test
-
-# Permissions for statefile dir
-mkdir -p $( dirname "$elastiqStateFile" ) 2> /dev/null
-chown "$elastiqUser" "$elastiqStateFile" 2> /dev/null
-chmod 0600 "$elastiqStateFile" 2> /dev/null
+# # Permissions for statefile dir
+# mkdir -p $( dirname "$elastiqStateFile" ) 2> /dev/null
+# chown "$elastiqUser" "$elastiqStateFile" 2> /dev/null
+# chmod 0600 "$elastiqStateFile" 2> /dev/null
 
 
 #
@@ -130,122 +119,117 @@ function echo_failure() (
   return 0
 )
 
+# automatically pick success/failure depending on the exit code
+function echo_end() (
+  if [[ $1 == 0 ]] ; then
+    echo_success "$2"
+  else
+    echo_failure "$2"
+  fi
+)
 
 #
 # Functions
 #
 
+
+# Start elastiq
+function start() {
+  local ret
+  local stateDir
+  local lastMsg
+
+  echo_begin "Starting ${Prog}"
+
+  # Permissions for the state file
+  stateDir="$( dirname "$elastiqStateFile" )"
+  mkdir -p "$stateDir"
+  chmod 0700 "$stateDir"
+  chown "$elastiqUser" "$stateDir"
+  if [[ -e "$elastiqStateFile" ]] ; then
+    chown "$elastiqUser" "$elastiqStateFile"
+    chmod 0600 "$elastiqStateFile"
+  fi
+
+  # Permissions for the log directory
+  mkdir -p "$elastiqLogDir"
+  chmod -R u=rwX,g=,o= "$elastiqLogDir"
+  chown -R "$elastiqUser" "$elastiqLogDir"
+
+  # Permissions for the PIDfile
+  touch "$elastiqPidFile"
+  chmod 0700 "$elastiqPidFile"
+  chown "$elastiqUser" "$elastiqPidFile"
+
+  # Finally start
+  sudo -u "$elastiqUser" elastiqctl start > /dev/null 2>&1
+
+  lastMsg=`query_status`
+  ret=$?
+
+  if [[ $ret == 0 ]] ; then
+    touch "$LockFile"
+    chown "$elastiqUser" "$LockFile"
+  fi
+
+  echo_end $ret "Starting ${Prog}: ${lastMsg}"
+
+  return $ret
+}
+
 # Stop elastiq
 function stop() {
+  local ret
+  local lastMsg
 
   echo_begin "Stopping ${Prog}"
+  sudo -u "$elastiqUser" elastiqctl stop > /dev/null 2>&1
 
-  local Signal='15'
-  local LastMsg
-  while true ; do
-    LastMsg=`query_status` || break
-    query_status > /dev/null 2>&1  # in this env for exporting pid
-    kill -$Signal $Pid 2> /dev/null
-    sleep 1
-    kill -0 $Pid 2> /dev/null && Signal=9
-  done
+  # note: query_status "fails" (1) if daemon is stoped: this is a success here
+  lastMsg=`query_status`
+  ret=$(( ! $? ))
 
-  # Clean dangling screen
-  screen -ls | grep -q "$elastiqScreenName" 2> /dev/null && \
-    screen -S "$elastiqScreenName" -X quit
-  screen -wipe > /dev/null 2>&1
+  [[ $ret == 0 ]] && rm -f "$LockFile"
 
-  rm -f "$Lock"
+  echo_end $ret "Stopping ${Prog}: ${lastMsg}"
 
-  echo_success "Stopping ${Prog}: ${LastMsg}"
-
-  return 0
-
+  return $ret
 }
 
 # Echo status
 function status() {
-  local Rv LastMsg
-  LastMsg=`query_status`
-  Rv=$?
-  if [[ $Rv == 0 ]] ; then
-    echo_success "${LastMsg}"
-    return 0
+  local ret
+  local lastMsg
+
+  lastMsg=`query_status`
+  ret=$?
+
+  if [[ $ret == 0 ]] ; then
+    echo_success "$lastMsg"
   else
-    echo_failure "${LastMsg}"
-    return 1
+    echo_failure "$lastMsg"
   fi
+
+  return $ret
 }
 
-# Query status
+# Query status: echoes a message and returns 0 if running, nonzero if not
 function query_status() {
-  local Out
-  Out=$( ps -e -o pid,command | grep " ${elastiqCommand}$" | grep -v SCREEN )
-  if [[ "$Out" == '' ]] ; then
-    export Pid=''
-    echo "$Prog not running"
-    return 1
+  local ret
+  sudo -u "$elastiqUser" elastiqctl status > /dev/null 2>&1
+  ret=$?
+  if [[ $ret == 0 ]] ; then
+    echo "${Prog} running with PID $(cat "$elastiqPidFile")"
   else
-    export Pid=$(echo $Out | awk '{ print $1 }')
-    echo "$Prog running with PID $Pid"
-    return 0
+    echo "${Prog} not running"
   fi
-}
-
-# Enter elastiq screen
-function enter_screen() {
-  local SN="$elastiqScreenName"
-  if query_status ; then
-    [[ $(whoami) != "$elastiqUser" ]] && SN="$elastiqUser/$SN"
-    screen -r "$SN"
-    return $?
-  fi
-  return 1
-}
-
-# Start elastiq
-function start() {
-
-  echo_begin "Starting ${Prog}"
-
-  local Rv=0
-  local LastMsg
-  LastMsg=`query_status`
-  if [[ $? != 0 ]] ; then
-
-    # Switching to unprivileged
-    if [[ `whoami` == 'root' ]] ; then
-      Cmd="su $elastiqUser -s /bin/sh -c"
-    else
-      Cmd="/bin/sh -c"
-    fi
-    $Cmd "screen -dmS \"$elastiqScreenName\" /bin/sh -c \"$elastiqCommand 2> $elastiqLogFileDir/elastiq.err\"" #> /dev/null 2>&1
-    $Cmd "screen -S \"$elastiqScreenName\" -X multiuser on"
-    $Cmd "screen -S \"$elastiqScreenName\" -X acladd root"
-
-    sleep 1
-    LastMsg=`query_status`
-    Rv=$?
-  fi
-
-  if [[ $Rv == 0 ]] ; then
-    touch "$Lock" 2> /dev/null
-    chown "$elastiqUser" "$Lock" 2> /dev/null
-    echo_success "Starting ${Prog}: ${LastMsg}"
-  else
-    echo_failure "Starting ${Prog}: ${LastMsg}"
-  fi
-
-  return $Rv
+  return $ret
 }
 
 # Print configuration
 function print_conf() {
-  echo "Python     : $( which python ) ($( python -V 2>&1 ))"
+  echo "Python     : $( which python ) ($( python --version 2>&1 ))"
   echo "PYTHONPATH : ${PYTHONPATH}"
-  echo "elastiq    : ${elastiqRealBin}"
-  echo "log dir    : ${elastiqLogFileDir}"
-  echo "conf       : ${elastiqConfFile}"
 }
 
 # Entry point
@@ -271,22 +255,9 @@ case "$1" in
     exit $?
   ;;
 
-  errlog)
-    status
-    rv=$?
-    logerr="${elastiqLogFileDir}/elastiq.err"
-    [[ -e "$logerr" ]] && cat "$logerr"
-    exit $?
-  ;;
-
   log)
     status
     [[ -e "$elastiqLogFile" ]] && tail -f "$elastiqLogFile"
-    exit $?
-  ;;
-
-  console)
-    enter_screen
     exit $?
   ;;
 
@@ -296,7 +267,7 @@ case "$1" in
   ;;
 
   *)
-    echo "Usage: $Prog [start|stop|status|restart|log|errlog|console|conf]"
+    echo "Usage: $Prog [start|stop|status|restart|log|conf]"
     exit 1
   ;;
 
