@@ -11,7 +11,7 @@ import threading
 class Elastiq(Daemon):
 
   ## Current version of elastiq
-  __version__ = '0.9.10'
+  __version__ = '0.9.99'
 
   ## Configuration dictionary (two-levels deep)
   cf = {}
@@ -292,7 +292,7 @@ class Elastiq(Daemon):
     img = None
     try:
       for img in ec2h.get_all_images():
-        if img.id == cf['ec2']['image_id']:
+        if img.id == self.cf['ec2']['image_id']:
           found = True
           break
     except Exception:
@@ -375,9 +375,9 @@ class Elastiq(Daemon):
 
     # Try to get image if necessary
     if self.ec2img is None:
-      self.ec2img = self.ec2_image(cf['ec2']['image_id'])
+      self.ec2img = self.ec2_image(self.cf['ec2']['image_id'])
       if self.ec2img is None:
-        self.logctl.error('Cannot scale up: image id %s not found' % cf['ec2']['image_id'])
+        self.logctl.error('Cannot scale up: image id %s not found' % self.cf['ec2']['image_id'])
         return []
 
     n_succ = 0
@@ -390,13 +390,13 @@ class Elastiq(Daemon):
       return []
 
     n_running_vms = len(inst)  # number of *total* VMs running (also non-HTCondor ones)
-    if cf['quota']['max_vms'] >= 1:
+    if self.cf['quota']['max_vms'] >= 1:
       # We have a "soft" quota: respect it
-      n_vms_to_start = int( min(nvms, cf['quota']['max_vms']-n_running_vms) )
+      n_vms_to_start = int( min(nvms, self.cf['quota']['max_vms']-n_running_vms) )
       if n_vms_to_start <= 0:
         self.logctl.warning(
           'Over quota (%d VMs already running out of %d): cannot launch any more VMs' % \
-          (n_running_vms, cf['quota']['max_vms']) )
+          (n_running_vms, self.cf['quota']['max_vms']) )
       else:
         self.logctl.warning('Quota enabled: requesting %d (out of desired %d) VMs' % \
           (n_vms_to_start, nvms) )
@@ -408,14 +408,14 @@ class Elastiq(Daemon):
     for i in range(1, n_vms_to_start+1):
 
       success = False
-      if int(cf['debug']['dry_run_boot_vms']) == 0:
+      if int(self.cf['debug']['dry_run_boot_vms']) == 0:
         try:
 
           # Returns the reservation
           reserv = self.ec2img.run(
-            key_name=cf['ec2']['key_name'],
+            key_name=self.cf['ec2']['key_name'],
             user_data=user_data,
-            instance_type=cf['ec2']['flavour']
+            instance_type=self.cf['ec2']['flavour']
           )
 
           # Get the single instance ID from the reservation
