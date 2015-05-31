@@ -632,6 +632,67 @@ class Elastiq(Daemon):
     }
 
 
+  ## Checks if a certain instance ID is in the list of hosts attached to the batch system. If not,
+  #  an instance termination is triggered.
+  #
+  #  @param instance_id Instance to check
+  #
+  #  @return Event to reschedule (reschedules self on error), or None
+  def check_owned_instance(self, instance_id):
+
+    self.logctl.info('Checking owned instance %s...' % instance_id)
+    inst = None
+
+    # Get information from EC2: we need the IP address
+    try:
+
+      try:
+        inst_list = self.ec2h.get_only_instances( [ instance_id ] )  # boto 2.34.1
+      except AttributeError:
+        self.logctl.debug('Using old boto workaround for getting one instance through reservations')
+        res_list = self.ec2h.get_all_instances( [ instance_id ] )  # boto 2.2.2
+        inst_list = res_list[0].instances
+
+      inst = inst_list[0]
+
+    except Exception as e:
+      self.logctl.error('Instance %s not found' % instance_id)
+      return
+
+    # Check if the instance is in the list (using cached status)
+    found = False
+    for h in self.st['workers_status'].keys():
+      if self.gethostbycondorname(h) == inst.private_ip_address:
+        found = True
+        break
+
+    # Deal with errors
+    if not found:
+      self.logctl.error(
+        'Instance %s (with IP %s) has not joined the cluster after %ds: terminating it' % \
+        (instance_id, inst.private_ip_address, self.cf['elastiq']['estimated_vm_deploy_time_s']) )
+
+      try:
+        inst.terminate()
+        self.owned_instances.remove(instance_id)
+        self.save_owned_instances()
+        self.logctl.info('Forcing EC2 shutdown of %s: OK' % instance_id)
+      except Exception as e:
+        # Recheck in a while (10s) in case termination fails
+        self.logctl.error('Forcing EC2 shutdown of %s failed: rescheduling check' % instance_id)
+        return {
+          'action': 'check_owned_instance',
+          'when': time.time() + 10,
+          'params': [ instance_id ]
+        }
+
+    else:
+      self.logctl.debug('Instance %s (with IP %s) successfully joined the cluster within %ds' % \
+        (instance_id, inst.private_ip_address, self.cf['elastiq']['estimated_vm_deploy_time_s']))
+
+    return None
+
+
   ## Main loop
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
