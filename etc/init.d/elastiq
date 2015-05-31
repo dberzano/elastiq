@@ -29,7 +29,8 @@ cd `dirname "$Prog"`
 Prog=`basename "$0"`
 
 # Lock file name
-LockFile='/var/lock/subsys/elastiq'
+LockDir='/var/lock/subsys'
+LockFile="${LockDir}/elastiq"
 
 # Log files directory
 elastiqLogDir='/var/log/elastiq'
@@ -162,12 +163,12 @@ function start() {
   chown "$elastiqUser" "$elastiqPidFile"
 
   # Finally start
-  sudo -u "$elastiqUser" elastiqctl start > /dev/null 2>&1
+  su "$elastiqUser" -s /bin/sh -c 'exec elastiqctl start' > /dev/null 2>&1
 
   lastMsg=`query_status`
   ret=$?
 
-  if [[ $ret == 0 ]] ; then
+  if [[ $ret == 0 && -d "$LockDir" ]] ; then
     touch "$LockFile"
     chown "$elastiqUser" "$LockFile"
   fi
@@ -216,7 +217,7 @@ function status() {
 # Query status: echoes a message and returns 0 if running, nonzero if not
 function query_status() {
   local ret
-  sudo -u "$elastiqUser" elastiqctl status > /dev/null 2>&1
+  su "$elastiqUser" -s /bin/sh -c 'exec elastiqctl status' > /dev/null 2>&1
   ret=$?
   if [[ $ret == 0 ]] ; then
     echo "${Prog} running with PID $(cat "$elastiqPidFile")"
