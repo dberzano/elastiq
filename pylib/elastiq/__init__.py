@@ -9,6 +9,7 @@ import threading
 import boto
 import base64
 import socket
+import math
 
 
 class Elastiq(Daemon):
@@ -733,7 +734,7 @@ class Elastiq(Daemon):
         (n_waiting_jobs, corr, n_waiting_jobs-corr))
       n_waiting_jobs -= corr
 
-      if n_waiting_jobs > self.cf['elastiq']['waiting_jobs_threshold']:
+      if n_waiting_jobs >= self.cf['elastiq']['waiting_jobs_threshold']:
         if self.st['first_seen_above_threshold'] != -1:
 
           if (check_time-self.st['first_seen_above_threshold']) > \
