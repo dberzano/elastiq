@@ -218,6 +218,8 @@ class Elastiq(Daemon):
           self.logctl.info('Waiting %ds before retrying...' % n_attempts)
           time.sleep(n_attempts)
 
+        self.logctl.debug('Executing command: %s' % params)
+
         if suppress_stderr:
           with open(os.devnull) as dev_null:
             sp = subprocess.Popen(params, stdout=subprocess.PIPE, stderr=dev_null, shell=shell)
@@ -789,7 +791,7 @@ class Elastiq(Daemon):
   def check_vm_errors(self):
 
     owned_instances_changed = False
-    self.logctl.info('Check VMs in error state...')
+    self.logctl.info('Check our VMs in error state...')
 
     # Get all instances in "error" state
     try:
