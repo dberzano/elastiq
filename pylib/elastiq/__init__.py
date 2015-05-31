@@ -94,6 +94,9 @@ class Elastiq(Daemon):
   # List of owned instances (instance IDs)
   owned_instances = []
 
+  # Internal state
+  st = None
+
 
   ## Constructor.
   #
@@ -572,7 +575,7 @@ class Elastiq(Daemon):
         rips.append( inst.private_ip_address )
     if len(rips) == 0:
       rips = None
-    new_workers_status = BatchPlugin.poll_status( self.st['workers_status'], rips )
+    new_workers_status = self.BatchPlugin.poll_status( self.st['workers_status'], rips )
 
     if new_workers_status is not None:
       #self.logctl.debug(new_workers_status)
@@ -720,7 +723,7 @@ class Elastiq(Daemon):
 
     self.logctl.info('Checking queue...')
     check_time = time.time()
-    n_waiting_jobs = BatchPlugin.poll_queue()
+    n_waiting_jobs = self.BatchPlugin.poll_queue()
 
     if n_waiting_jobs is not None:
 
@@ -956,11 +959,6 @@ class Elastiq(Daemon):
     return True
 
 
-  ## Daemon's main loop.
-  def main_loop(self):
-    pass
-
-
   ## Initialize batch plugin.
   def _load_batch_plugin(self):
     batch_name = self.cf['elastiq']['batch_plugin']
@@ -1034,6 +1032,45 @@ class Elastiq(Daemon):
         self.user_data = self.user_data.replace('%fqdn%', fqdn)
 
 
+  ## Daemon's main loop: implements an event-based execution model.
+  def main_loop(self):
+
+    check_time = time.time()
+    count = 0
+    tot = len( self.st['event_queue'] )
+    for evt in self.st['event_queue'][:]:
+
+      # Extra params?
+      if 'params' in evt:
+        p = evt['params']
+      else:
+        p = []
+
+      # Debug message
+      count += 1
+      self.logctl.debug('Event %d/%d in queue: action=%s when=%d (%d) params=%s' % \
+        (count, tot, evt['action'], evt['when'], check_time-evt['when'], p))
+
+      if evt['when'] <= check_time:
+        r = None
+        self.st['event_queue'].remove(evt)
+
+        # Actions
+        if evt['action'] == 'check_vms':
+          r = self.check_vms(*p)
+        elif evt['action'] == 'check_vm_errors':
+          r = self.check_vm_errors(*p)
+        elif evt['action'] == 'check_queue':
+          r = self.check_queue(*p)
+        elif evt['action'] == 'change_vms_allegedly_running':
+          r = self.change_vms_allegedly_running(*p)
+        elif evt['action'] == 'check_owned_instance':
+          r = self.check_owned_instance(*p)
+
+        if r is not None:
+          self.st['event_queue'].append(r)
+
+
   ## Daemon's main function.
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
@@ -1046,6 +1083,18 @@ class Elastiq(Daemon):
     self._load_batch_plugin()
     self._init_ec2()
     self._init_user_data()
+
+    # Initial values for the internal state
+    self.st = {
+      'first_seen_above_threshold': -1,
+      'workers_status': {},
+      'vms_allegedly_running': 0,
+      'event_queue': [
+        {'action': 'check_vm_errors', 'when': 0},
+        {'action': 'check_vms',       'when': 0},
+        {'action': 'check_queue',     'when': 0}
+      ]
+    }
 
     while self._do_main_loop:
       self.main_loop()
