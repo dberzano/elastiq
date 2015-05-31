@@ -693,6 +693,25 @@ class Elastiq(Daemon):
     return None
 
 
+  ## Changes the number of VMs allegedly running by adding a delta.
+  #
+  #  @param delta Number of VMs to add (can be negative)
+  #  @param instance_id Optional corresponding instance ID
+  def change_vms_allegedly_running(self, delta, instance_id=None):
+    self.st['vms_allegedly_running'] += delta
+    if self.st['vms_allegedly_running'] < 0:
+      self.st['vms_allegedly_running'] = 0
+    self.logctl.info('Number of allegedly running VMs changed to %d' % \
+      self.st['vms_allegedly_running'])
+
+    # When incrementing, we should set an event to decrement of the same quantity
+    if delta > 0:
+      self.st['event_queue'].append({
+        'action': 'change_vms_allegedly_running',
+        'when': time.time() + self.cf['elastiq']['estimated_vm_deploy_time_s'],
+        'params': [ -delta, instance_id ]
+      })
+
 
   ## Checks batch queue and take actions of starting VMs when appropriate.
   #
