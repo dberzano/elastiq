@@ -7,6 +7,8 @@ from ConfigParser import SafeConfigParser
 import subprocess
 import threading
 import boto
+import base64
+import socket
 
 
 class Elastiq(Daemon):
@@ -412,7 +414,7 @@ class Elastiq(Daemon):
           # Returns the reservation
           reserv = self.ec2img.run(
             key_name=self.cf['ec2']['key_name'],
-            user_data=user_data,
+            user_data=self.user_data,
             instance_type=self.cf['ec2']['flavour']
           )
 
@@ -992,6 +994,46 @@ class Elastiq(Daemon):
       self.logctl.debug('EC2 image "%s" found' % self.cf['ec2']['image_id'])
 
 
+  ## Substitute vars inside user-data.
+  def _init_user_data(self):
+    # Un-base64 user-data
+    try:
+      self.user_data = base64.b64decode(self.cf['ec2']['user_data_b64'])
+    except TypeError:
+      self.logctl.error('Invalid base64 data for user-data!')
+      self.user_data = ''
+
+    if self.user_data != '':
+
+      # Parse user-data and substitute variables. We currently support:
+      # %ipv4%, %ipv6%, %fqdn%
+      # Can be overridden by the [substitute] section in configuration
+
+      if self.user_data.find('%ipv4%') > -1:
+        ipv4 = self.cf['substitute']['ipv4']
+        if ipv4 is None:
+          ipv4 = self.get_main_ipv4()
+        if ipv4 is None:
+          self.logctl.warning('Cannot substitute IPv4 variable in user-data')
+        else:
+          self.user_data = self.user_data.replace('%ipv4%', ipv4)
+
+      if self.user_data.find('%ipv6%') > -1:
+        ipv6 = self.cf['substitute']['ipv6']
+        if ipv6 is None:
+          ipv6 = self.get_main_ipv6()
+        if ipv6 is None:
+          self.logctl.warning('Cannot substitute IPv6 variable in user-data')
+        else:
+          self.user_data = self.user_data.replace('%ipv6%', ipv6)
+
+      if self.user_data.find('%fqdn%') > -1:
+        fqdn = self.cf['substitute']['fqdn']
+        if fqdn is None:
+          fqdn = socket.getfqdn()
+        self.user_data = self.user_data.replace('%fqdn%', fqdn)
+
+
   ## Daemon's main function.
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
@@ -1003,6 +1045,7 @@ class Elastiq(Daemon):
     self.load_owned_instances()
     self._load_batch_plugin()
     self._init_ec2()
+    self._init_user_data()
 
     while self._do_main_loop:
       self.main_loop()
