@@ -958,6 +958,24 @@ class Elastiq(Daemon):
     pass
 
 
+  ## Initialize batch plugin.
+  def _load_batch_plugin(self):
+    batch_name = self.cf['elastiq']['batch_plugin']
+    try:
+      # See: http://stackoverflow.com/questions/6677424/how-do-i-import-variable-packages-in-python-
+      #      like-using-variable-variables-i
+      # Similar to: from elastiq.plugins import htcondor as BatchPlugin
+      self.BatchPlugin = getattr(__import__('elastiq.plugins', fromlist=[ batch_name ]), batch_name)
+    except (ImportError, AttributeError) as e:
+      self.logctl.fatal('Cannot load batch plugin "%s"' % batch_name)
+      raise e  # to have more details on failed loading
+
+    self.logctl.info('Loaded batch plugin "%s"' % batch_name)
+
+    # Init batch plugin by passing an instance of this Elastiq class
+    self.BatchPlugin.init( self )
+
+
   ## Daemon's main function.
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
@@ -967,6 +985,7 @@ class Elastiq(Daemon):
     self.logctl.info('We are running elastiq v%s' % self.__version__)
     self._load_conf()
     self.load_owned_instances()
+    self._load_batch_plugin()
 
     while self._do_main_loop:
       self.main_loop()
