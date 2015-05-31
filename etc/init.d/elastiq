@@ -3,7 +3,7 @@
 # elastiq       Starts and stops the elastiq queue monitor
 #
 # chkconfig:    2345 99 09
-# description:  Control script for starting/stopping elastiq-real.py.
+# description:  Elastic batch systems on the cloud
 #
 
 ### BEGIN INIT INFO
@@ -13,7 +13,7 @@
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Starts and stops the elastiq queue monitor
-# Description:       Control script for starting/stopping elastiq-real.py.
+# Description:       Elastic batch systems on the cloud
 ### END INIT INFO
 
 #
