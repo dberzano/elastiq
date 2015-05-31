@@ -398,11 +398,13 @@ class Elastiq(Daemon):
     n_running_vms = len(inst)  # number of *total* VMs running (also non-HTCondor ones)
     if self.cf['quota']['max_vms'] >= 1:
       # We have a "soft" quota: respect it
-      n_vms_to_start = int( min(nvms, self.cf['quota']['max_vms']-n_running_vms) )
+      n_vms_to_start = int(
+        min(nvms, self.cf['quota']['max_vms']-n_running_vms-self.st['vms_allegedly_running']) )
       if n_vms_to_start <= 0:
         self.logctl.warning(
-          'Over quota (%d VMs already running out of %d): cannot launch any more VMs' % \
-          (n_running_vms, self.cf['quota']['max_vms']) )
+          'Over quota (%d VMs running plus %d VMs allegedly running out of %d): ' \
+          'cannot launch new VMs' % \
+          (n_running_vms, self.st['vms_allegedly_running'], self.cf['quota']['max_vms']) )
       else:
         self.logctl.warning('Quota enabled: requesting %d (out of desired %d) VMs' % \
           (n_vms_to_start, nvms) )
