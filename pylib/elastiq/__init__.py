@@ -553,6 +553,85 @@ class Elastiq(Daemon):
     return list_shutdown_ok
 
 
+  ## Checks status of Virtual Machines currently associated to the batch system: starts new nodes to
+  #  satisfy minimum quota requirements, and turn off idle nodes. Takes a list of worker statuses as
+  #  input and returns an event dictionary scheduling self invocation.
+  #
+  #  @return Next action to schedule (dict)
+  def check_vms(self):
+
+    self.logctl.info("Checking batch system's VMs...")
+    check_time = time.time()
+
+    # Retrieve *all* running instances (also the non-owned ones) and filter out statuses of workers
+    # which are not valid VMs: we are not interested in them
+    rvms = self.ec2_running_instances()
+    rips = []
+    if rvms is not None:
+      for inst in rvms:
+        rips.append( inst.private_ip_address )
+    if len(rips) == 0:
+      rips = None
+    new_workers_status = BatchPlugin.poll_status( self.st['workers_status'], rips )
+
+    if new_workers_status is not None:
+      #self.logctl.debug(new_workers_status)
+      self.st['workers_status'] = new_workers_status
+      new_workers_status = None
+
+      hosts_shutdown = []
+      for host,info in self.st['workers_status'].iteritems():
+        if info['jobs'] != 0:
+          continue
+        if (check_time-info['unchangedsince']) > self.cf['elastiq']['idle_for_time_s']:
+          self.logctl.info('Host %s is idle for more than %ds: requesting shutdown' % \
+            (host, self.cf['elastiq']['idle_for_time_s']))
+          self.st['workers_status'][host]['unchangedsince'] = check_time  # reset timer
+          hosts_shutdown.append(host)
+
+      if len(hosts_shutdown) > 0:
+        inst_ok = self.ec2_scale_down(hosts_shutdown,
+          valid_hostnames=self.st['workers_status'].keys())
+        self.change_vms_allegedly_running(-len(inst_ok))
+
+      # Scale up to reach the minimum quota, if any
+      min_vms = self.cf['quota']['min_vms']
+      if min_vms >= 1:
+        rvms = self.ec2_running_instances( self.st['workers_status'].keys() )
+        if rvms is None:
+          self.logctl.warning(
+            'Cannot get list of running instances for honoring min quota of %d' % min_vms)
+        else:
+          n_run = len(rvms)
+          n_consider_run = n_run + self.st['vms_allegedly_running']
+          self.logctl.info('VMs: running=%d | allegedly running=%d | considering=%d' % \
+            (n_run, self.st['vms_allegedly_running'], n_consider_run))
+          n_vms = min_vms - n_consider_run
+          if n_vms > 0:
+            self.logctl.info('Below minimum quota (%d VMs): requesting %d more VMs' % \
+              (min_vms, n_vms))
+            inst_ok = self.ec2_scale_up( n_vms, valid_hostnames=st['workers_status'].keys() )
+            for inst in inst_ok:
+              self.change_vms_allegedly_running(1, inst)
+              st['event_queue'].append({
+                'action': 'check_owned_instance',
+                'when': time.time() + self.cf['elastiq']['estimated_vm_deploy_time_s'],
+                'params': [ inst ]
+              })
+
+      # OK: schedule when configured
+      sched_when = time.time() + self.cf['elastiq']['check_vms_every_s']
+
+    else:
+      # Not OK: reschedule ASAP
+      sched_when = 0
+
+    return {
+      'action': 'check_vms',
+      'when': sched_when
+    }
+
+
   ## Main loop
   #
   #  @return Exit code of the daemon: keep it in the range 0-255
