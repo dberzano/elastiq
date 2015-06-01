@@ -1,0 +1,13 @@
+[Unit]
+Description=Elastic batch systems on the cloud
+After=syslog.target
+
+[Service]
+ExecStart=/usr/bin/elastiqctl start
+ExecStop=/usr/bin/elastiqctl stop
+Type=forking
+User=elastiq
+PIDFile=/var/run/elastiq.pid
+
+[Install]
+WantedBy=multi-user.target
