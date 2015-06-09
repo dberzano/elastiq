@@ -620,7 +620,7 @@ class Elastiq(Daemon):
           if n_vms > 0:
             self.logctl.info('Below minimum quota (%d VMs): requesting %d more VMs' % \
               (min_vms, n_vms))
-            inst_ok = self.ec2_scale_up( n_vms, valid_hostnames=self.st['workers_status'].keys() )
+            inst_ok = self.ec2_scale_up(n_vms)
             for inst in inst_ok:
               self.change_vms_allegedly_running(1, inst)
               self.st['event_queue'].append({
@@ -883,7 +883,7 @@ class Elastiq(Daemon):
 
       # Attempt to run replacement VMs (no retry in this case!)
       if n_vms_to_restart > 0:
-        list_ok = self.ec2_scale_up( n_vms_to_restart, valid_hostnames=self.st['workers_status'].keys() )
+        list_ok = self.ec2_scale_up(n_vms_to_restart)
         for inst in list_ok:
           self.change_vms_allegedly_running(1, inst)
           self.st['event_queue'].append({
