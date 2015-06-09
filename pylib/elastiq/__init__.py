@@ -15,7 +15,7 @@ import math
 class Elastiq(Daemon):
 
   ## Current version of elastiq
-  __version__ = '1.0.1'
+  __version__ = '1.0.2'
 
   ## Configuration dictionary (two-levels deep)
   cf = {}
