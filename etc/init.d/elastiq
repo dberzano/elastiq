@@ -59,6 +59,8 @@ function FindFirst() (
   return 1
 )
 
+# Load additional environment (optional: normally not used)
+source `FindFirst /etc/default/elastiq /etc/sysconfig/elastiq` > /dev/null 2>&1
 
 #
 # Echo functions
