@@ -59,22 +59,6 @@ function FindFirst() (
   return 1
 )
 
-# # Permissions for logfile dir
-# mkdir -p "$elastiqLogFileDir" 2> /dev/null
-# chown "$elastiqUser" "$elastiqLogFileDir" 2> /dev/null
-# chmod 0770 "$elastiqLogFileDir" 2> /dev/null  # might contain sensitive data
-# touch "$elastiqLogFileDir"/.test 2> /dev/null
-# if [[ $? != 0 ]] ; then
-#   echo "Cannot access log directory $elastiqLogFileDir" >&2
-#   exit 3
-# fi
-# rm -f "$elastiqLogFileDir"/.test
-
-# # Permissions for statefile dir
-# mkdir -p $( dirname "$elastiqStateFile" ) 2> /dev/null
-# chown "$elastiqUser" "$elastiqStateFile" 2> /dev/null
-# chmod 0600 "$elastiqStateFile" 2> /dev/null
-
 
 #
 # Echo functions
