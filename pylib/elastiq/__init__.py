@@ -462,7 +462,7 @@ class Elastiq(Daemon):
   # is honored by considering, as number of currently running VMs, the sole VMs known by the batch
   # system. This behavior is different than what we do for the maximum quota, where we take into
   # account all the running VMs to avoid cloud overflowing.
-  def ec2_scale_down(hosts, valid_hostnames=None):
+  def ec2_scale_down(self, hosts, valid_hostnames=None):
 
     if len(hosts) == 0:
       self.logctl.warning('No hosts to shut down!')
