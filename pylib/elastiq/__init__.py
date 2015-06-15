@@ -10,6 +10,7 @@ import boto
 import base64
 import socket
 import math
+import random
 
 
 class Elastiq(Daemon):
