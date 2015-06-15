@@ -16,7 +16,7 @@ import random
 class Elastiq(Daemon):
 
   ## Current version of elastiq
-  __version__ = '1.0.3'
+  __version__ = '1.0.4'
 
   ## Configuration dictionary (two-levels deep)
   cf = {}
