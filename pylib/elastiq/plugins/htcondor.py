@@ -45,7 +45,7 @@ def poll_queue():
 #  @return An array of hosts, each one of them with its number of running jobs, or None on error
 def poll_status(current_workers_status, valid_ipv4s=None):
   ret = elastiq_instance.robust_cmd(
-    ['condor_status', '-xml', '-attributes', 'Activity,Machine'], max_attempts=2)
+    ['condor_status', '-xml', '-attributes', 'MyType,Activity,Machine'], max_attempts=2)
   if ret is None or 'output' not in ret:
     return None
 
